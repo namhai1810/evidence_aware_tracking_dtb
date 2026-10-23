@@ -1,0 +1,64 @@
+{
+  "dataset_name": "hive_lr_history_ranking",
+  "dataset_version": "2.0",
+  "generated_at": "2026-10-23T12:10:41+02:00",
+  "seed": 42,
+  "split_unit": "sequence",
+  "train_sequences": [
+    "0015",
+    "0018",
+    "0019",
+    "0020",
+    "0021",
+    "0022",
+    "0023",
+    "0024",
+    "0026",
+    "0027",
+    "0028",
+    "0029",
+    "0030"
+  ],
+  "validation_sequences": [
+    "0019",
+    "0028",
+    "0030"
+  ],
+  "learning_sequences": [
+    "0015",
+    "0018",
+    "0020",
+    "0021",
+    "0022",
+    "0023",
+    "0024",
+    "0026",
+    "0027",
+    "0029"
+  ],
+  "test_sequences": [
+    "0016",
+    "0017",
+    "0025",
+    "0031"
+  ],
+  "window_frames": 150,
+  "candidate_window": "T-window_frames through T-1",
+  "max_candidates": 20,
+  "candidate_routes": {
+    "appearance_hard": 10,
+    "recent": 5,
+    "temporal_diverse": 5
+  },
+  "min_spacing_frames": 3,
+  "evaluation_iou": 0.5,
+  "lowres_width": 512,
+  "lowres_height": 120,
+  "candidate_generation": "LR tracker + LR pixels only; GT joined after selection",
+  "source_files": {
+    "v1_dataset": "/workspace/evidence_aware_tracking/code/outputs/reid_ranking_dataset_v1",
+    "v1_split_config_sha256": "8e2a4266666846032c3f4a5052a5ad22f6cdc40829e47b695c3d21b442906dc0",
+    "lowres_predictions": "code/outputs/all_sequences_reid_512x120/predictions",
+    "original_frames": "QuadTrack/train"
+  }
+}

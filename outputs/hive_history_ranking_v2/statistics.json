@@ -1,0 +1,354 @@
+{
+  "train": {
+    "sequences": [
+      "0015",
+      "0018",
+      "0020",
+      "0021",
+      "0022",
+      "0023",
+      "0024",
+      "0026",
+      "0027",
+      "0029"
+    ],
+    "sequence_count": 10,
+    "event_count": 757,
+    "candidate_pair_count": 14997,
+    "positive_pair_count": 4610,
+    "negative_pair_count": 10387,
+    "positive_pair_rate": 0.3073948122957925,
+    "events_with_positive": 665,
+    "events_without_positive": 92,
+    "oracle_coverage": 0.8784676354029062,
+    "proposal_roles": {
+      "appearance_hard": 7445,
+      "appearance_fill": 716,
+      "recent": 3550,
+      "temporal_diverse": 3286
+    },
+    "negative_kinds": {
+      "wrong_identity": 7267,
+      "unmatched_detection": 3120
+    }
+  },
+  "validation": {
+    "sequences": [
+      "0019",
+      "0028",
+      "0030"
+    ],
+    "sequence_count": 3,
+    "event_count": 76,
+    "candidate_pair_count": 1518,
+    "positive_pair_count": 578,
+    "negative_pair_count": 940,
+    "positive_pair_rate": 0.380764163372859,
+    "events_with_positive": 68,
+    "events_without_positive": 8,
+    "oracle_coverage": 0.8947368421052632,
+    "proposal_roles": {
+      "appearance_hard": 756,
+      "appearance_fill": 53,
+      "recent": 363,
+      "temporal_diverse": 346
+    },
+    "negative_kinds": {
+      "unmatched_detection": 549,
+      "wrong_identity": 391
+    }
+  },
+  "test": {
+    "sequences": [
+      "0016",
+      "0017",
+      "0025",
+      "0031"
+    ],
+    "sequence_count": 4,
+    "event_count": 92,
+    "candidate_pair_count": 1840,
+    "positive_pair_count": 537,
+    "negative_pair_count": 1303,
+    "positive_pair_rate": 0.29184782608695653,
+    "events_with_positive": 80,
+    "events_without_positive": 12,
+    "oracle_coverage": 0.8695652173913043,
+    "proposal_roles": {
+      "appearance_hard": 917,
+      "recent": 450,
+      "temporal_diverse": 437,
+      "appearance_fill": 36
+    },
+    "negative_kinds": {
+      "wrong_identity": 1119,
+      "unmatched_detection": 184
+    }
+  },
+  "all": {
+    "sequences": [
+      "0015",
+      "0016",
+      "0017",
+      "0018",
+      "0019",
+      "0020",
+      "0021",
+      "0022",
+      "0023",
+      "0024",
+      "0025",
+      "0026",
+      "0027",
+      "0028",
+      "0029",
+      "0030",
+      "0031"
+    ],
+    "sequence_count": 17,
+    "event_count": 925,
+    "candidate_pair_count": 18355,
+    "positive_pair_count": 5725,
+    "negative_pair_count": 12630,
+    "positive_pair_rate": 0.31190411332062107,
+    "events_with_positive": 813,
+    "events_without_positive": 112,
+    "oracle_coverage": 0.8789189189189189,
+    "proposal_roles": {
+      "appearance_hard": 9118,
+      "appearance_fill": 805,
+      "recent": 4363,
+      "temporal_diverse": 4069
+    },
+    "negative_kinds": {
+      "wrong_identity": 8777,
+      "unmatched_detection": 3853
+    }
+  },
+  "sequence_mining": {
+    "0015": {
+      "source_size": [
+        2048,
+        480
+      ],
+      "events": 15,
+      "events_with_candidates": 15,
+      "events_with_positive": 15,
+      "candidate_pairs": 299,
+      "positive_candidates": 251,
+      "negative_candidates": 48,
+      "wrong_identity_negatives": 48,
+      "unmatched_detection_negatives": 0
+    },
+    "0016": {
+      "source_size": [
+        2048,
+        480
+      ],
+      "events": 13,
+      "events_with_candidates": 13,
+      "events_with_positive": 13,
+      "candidate_pairs": 260,
+      "positive_candidates": 138,
+      "negative_candidates": 122,
+      "wrong_identity_negatives": 120,
+      "unmatched_detection_negatives": 2
+    },
+    "0017": {
+      "source_size": [
+        2048,
+        480
+      ],
+      "events": 17,
+      "events_with_candidates": 17,
+      "events_with_positive": 17,
+      "candidate_pairs": 340,
+      "positive_candidates": 134,
+      "negative_candidates": 206,
+      "wrong_identity_negatives": 184,
+      "unmatched_detection_negatives": 22
+    },
+    "0018": {
+      "source_size": [
+        2048,
+        480
+      ],
+      "events": 96,
+      "events_with_candidates": 96,
+      "events_with_positive": 90,
+      "candidate_pairs": 1905,
+      "positive_candidates": 646,
+      "negative_candidates": 1259,
+      "wrong_identity_negatives": 779,
+      "unmatched_detection_negatives": 480
+    },
+    "0019": {
+      "source_size": [
+        2048,
+        480
+      ],
+      "events": 41,
+      "events_with_candidates": 41,
+      "events_with_positive": 34,
+      "candidate_pairs": 818,
+      "positive_candidates": 110,
+      "negative_candidates": 708,
+      "wrong_identity_negatives": 182,
+      "unmatched_detection_negatives": 526
+    },
+    "0020": {
+      "source_size": [
+        2048,
+        480
+      ],
+      "events": 27,
+      "events_with_candidates": 27,
+      "events_with_positive": 18,
+      "candidate_pairs": 539,
+      "positive_candidates": 44,
+      "negative_candidates": 495,
+      "wrong_identity_negatives": 56,
+      "unmatched_detection_negatives": 439
+    },
+    "0021": {
+      "source_size": [
+        2048,
+        480
+      ],
+      "events": 109,
+      "events_with_candidates": 109,
+      "events_with_positive": 103,
+      "candidate_pairs": 2160,
+      "positive_candidates": 935,
+      "negative_candidates": 1225,
+      "wrong_identity_negatives": 1024,
+      "unmatched_detection_negatives": 201
+    },
+    "0022": {
+      "source_size": [
+        2048,
+        480
+      ],
+      "events": 92,
+      "events_with_candidates": 92,
+      "events_with_positive": 83,
+      "candidate_pairs": 1840,
+      "positive_candidates": 517,
+      "negative_candidates": 1323,
+      "wrong_identity_negatives": 1288,
+      "unmatched_detection_negatives": 35
+    },
+    "0023": {
+      "source_size": [
+        2048,
+        480
+      ],
+      "events": 97,
+      "events_with_candidates": 97,
+      "events_with_positive": 83,
+      "candidate_pairs": 1940,
+      "positive_candidates": 677,
+      "negative_candidates": 1263,
+      "wrong_identity_negatives": 735,
+      "unmatched_detection_negatives": 528
+    },
+    "0024": {
+      "source_size": [
+        2048,
+        480
+      ],
+      "events": 105,
+      "events_with_candidates": 105,
+      "events_with_positive": 90,
+      "candidate_pairs": 2048,
+      "positive_candidates": 587,
+      "negative_candidates": 1461,
+      "wrong_identity_negatives": 788,
+      "unmatched_detection_negatives": 673
+    },
+    "0025": {
+      "source_size": [
+        2048,
+        480
+      ],
+      "events": 61,
+      "events_with_candidates": 61,
+      "events_with_positive": 49,
+      "candidate_pairs": 1220,
+      "positive_candidates": 263,
+      "negative_candidates": 957,
+      "wrong_identity_negatives": 797,
+      "unmatched_detection_negatives": 160
+    },
+    "0026": {
+      "source_size": [
+        2048,
+        480
+      ],
+      "events": 83,
+      "events_with_candidates": 83,
+      "events_with_positive": 72,
+      "candidate_pairs": 1615,
+      "positive_candidates": 330,
+      "negative_candidates": 1285,
+      "wrong_identity_negatives": 953,
+      "unmatched_detection_negatives": 332
+    },
+    "0027": {
+      "source_size": [
+        2048,
+        480
+      ],
+      "events": 133,
+      "events_with_candidates": 133,
+      "events_with_positive": 111,
+      "candidate_pairs": 2651,
+      "positive_candidates": 623,
+      "negative_candidates": 2028,
+      "wrong_identity_negatives": 1596,
+      "unmatched_detection_negatives": 432
+    },
+    "0028": {
+      "source_size": [
+        2048,
+        480
+      ],
+      "events": 7,
+      "events_with_candidates": 7,
+      "events_with_positive": 7,
+      "candidate_pairs": 140,
+      "positive_candidates": 67,
+      "negative_candidates": 73,
+      "wrong_identity_negatives": 72,
+      "unmatched_detection_negatives": 1
+    },
+    "0030": {
+      "source_size": [
+        2048,
+        480
+      ],
+      "events": 28,
+      "events_with_candidates": 28,
+      "events_with_positive": 27,
+      "candidate_pairs": 560,
+      "positive_candidates": 401,
+      "negative_candidates": 159,
+      "wrong_identity_negatives": 137,
+      "unmatched_detection_negatives": 22
+    },
+    "0031": {
+      "source_size": [
+        2048,
+        480
+      ],
+      "events": 1,
+      "events_with_candidates": 1,
+      "events_with_positive": 1,
+      "candidate_pairs": 20,
+      "positive_candidates": 2,
+      "negative_candidates": 18,
+      "wrong_identity_negatives": 18,
+      "unmatched_detection_negatives": 0
+    }
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "generated_at": "2026-10-22T16:42:08+02:00",
+  "dataset_root": "/workspace/evidence_aware_tracking/code/outputs/reid_ranking_dataset_v1",
+  "project_root": "/workspace/evidence_aware_tracking",
+  "events": 925,
+  "candidate_pairs": 4606,
+  "train_sequences": [
+    "0015",
+    "0018",
+    "0019",
+    "0020",
+    "0021",
+    "0022",
+    "0023",
+    "0024",
+    "0026",
+    "0027",
+    "0028",
+    "0029",
+    "0030"
+  ],
+  "test_sequences": [
+    "0016",
+    "0017",
+    "0025",
+    "0031"
+  ],
+  "sequence_overlap": [],
+  "event_overlap_count": 0,
+  "missing_query_crops": 0,
+  "missing_target_crops": 0,
+  "missing_hr_candidate_crops": 0,
+  "materialized_lr_candidate_crops": 0,
+  "lr_candidates_reconstructable_from_full_frame": 4606,
+  "missing_full_source_frames": 0,
+  "lr_tracking_files_available": 17,
+  "lr_tracking_files_expected": 17,
+  "full_lr_panorama_frames_materialized": false,
+  "lr_tracker_match_iou_threshold": 0.5,
+  "candidates_with_lr_tracker_match": 3024,
+  "candidates_with_any_lr_tracker_overlap": 3417,
+  "events_with_competing_new_track_history": 563,
+  "association_matrices_available": false,
+  "motion_features_available": false,
+  "measured_correction_utility_labels_available": false,
+  "hr_teacher_fields": {
+    "bridge_similarity": 4606,
+    "similarity_to_old_track": 4606,
+    "similarity_to_target": 4606
+  },
+  "candidate_pool_selected_with_hr_reid": true
+}

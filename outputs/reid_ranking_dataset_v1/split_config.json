@@ -1,0 +1,54 @@
+{
+  "dataset_name": "quadtrack_cross_resolution_reid_ranking",
+  "dataset_version": "1.0",
+  "generated_at": "2026-10-22T16:04:33+02:00",
+  "split_unit": "sequence",
+  "train_sequences": [
+    "0015",
+    "0018",
+    "0019",
+    "0020",
+    "0021",
+    "0022",
+    "0023",
+    "0024",
+    "0026",
+    "0027",
+    "0028",
+    "0029",
+    "0030"
+  ],
+  "test_sequences": [
+    "0016",
+    "0017",
+    "0025",
+    "0031"
+  ],
+  "materialized_crops": true,
+  "lowres_physical_size": [
+    512,
+    120
+  ],
+  "candidate_window": {
+    "seconds_before": [
+      0.0,
+      5.0
+    ],
+    "frames_before": [
+      0,
+      150
+    ],
+    "exact_frame_interval": "T-150 through T-1"
+  },
+  "top_k": 5,
+  "evaluation_iou": 0.5,
+  "reid_model": "yolo26n-reid.onnx",
+  "source_files": {
+    "events_json": "code/outputs/highres_retrieval_reid_embedding/switch_events_top5.json",
+    "events_json_sha256": "f4427a7bfa8b1deba5683c20f8f09ac2988cd78724dbdbc8f37c242e35f8d465",
+    "retrieval_summary": "code/outputs/highres_retrieval_reid_embedding/summary.json",
+    "retrieval_summary_sha256": "29a1e9a1edb846f632544b9e273108029617c4978281e4fc7feff22f72058bef",
+    "lowres_predictions": "code/outputs/all_sequences_reid_512x120/predictions",
+    "original_frames": "QuadTrack/train"
+  }
+}

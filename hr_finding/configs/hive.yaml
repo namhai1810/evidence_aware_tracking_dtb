@@ -1,0 +1,74 @@
+experiment:
+  name: hive_full
+  seed: 42
+  deterministic: true
+
+data:
+  dataset_root: ../outputs/reid_ranking_dataset_v1
+  project_root: ../..
+  train_manifest: train_data/events.jsonl
+  test_manifest: test_data/events.jsonl
+  # Validation is video-disjoint and drawn only from the original training videos.
+  validation_sequences: ["0019", "0028", "0030"]
+  lowres_size: [120, 512]       # height, width of the genuine LR panorama
+  crop_size: [128, 64]         # height, width given to the appearance encoder
+  max_history: 5
+  max_candidates: 5
+  candidate_window_frames: 150
+  frame_cache_size: 32
+  candidate_box_mode: manifest_bbox
+  lr_match_iou: 0.5
+  include_competitor_history: true
+  competitor_history_frames: 30
+  metadata_features: [age_norm, age_squared, log_age]
+  teacher_margin_field: null
+  num_workers: 4
+  pin_memory: true
+
+model:
+  # appearance_only | appearance_metadata | hive_no_hypothesis | hive_full
+  variant: hive_full
+  embedding_dim: 64
+  relation_dim: 96
+  metadata_hidden_dim: 16
+  scorer_hidden_dim: 96
+  dropout: 0.15
+  normalize_embeddings: true
+  freeze_appearance_encoder: false
+
+loss:
+  lambda_cls: 1.0
+  lambda_rank: 0.5
+  lambda_margin: 0.0
+  positive_weight: auto
+  # bridge_similarity is an offline HR-ReID teacher signal, not correction utility.
+  # Keep margin distillation disabled unless a scientifically valid teacher is supplied.
+  margin_teacher_field: null
+  margin_loss: smooth_l1
+
+training:
+  epochs: 100
+  batch_size: 16
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  optimizer: adamw
+  scheduler: cosine
+  min_learning_rate: 0.00001
+  amp: true
+  grad_clip_norm: 5.0
+  log_interval: 10
+  histogram_interval: 0
+  monitor: success_at_1
+  monitor_mode: max
+  early_stopping_patience: 15
+
+evaluation:
+  classification_threshold: 0.5
+  # Calibrate this on validation only before enabling a no-request policy.
+  no_request_threshold: 0.5
+  ranking_ks: [1, 3, 5]
+  latency_warmup_batches: 5
+
+output:
+  root: runs
+

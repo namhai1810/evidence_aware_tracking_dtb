@@ -1,0 +1,93 @@
+# Python bytecode and tool caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.ipynb_checkpoints/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local environments and machine-specific settings
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+.ultralytics/
+
+# Editors and operating-system metadata
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Python/native build products
+build/
+dist/
+*.egg-info/
+*.so
+*.o
+*.a
+
+# Downloaded model weights and exported inference engines
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.engine
+*.torchscript
+
+# Training runs, checkpoints, profilers and experiment trackers
+runs/
+checkpoints/
+wandb/
+mlruns/
+lightning_logs/
+events.out.tfevents.*
+*.prof
+*.trace
+
+# Runtime logs and temporary files
+*.log
+*.tmp
+*.temp
+
+# Generated media
+*.mp4
+*.avi
+*.mkv
+*.webm
+
+# Generated experiment outputs. Keep lightweight reports and curated figures.
+/outputs/*
+!/outputs/*.md
+!/outputs/report_assets/
+!/outputs/report_assets/*.png
+
+# Keep reproducibility metadata, but not materialized crops/manifests.
+!/outputs/reid_ranking_dataset_v1/
+/outputs/reid_ranking_dataset_v1/*
+!/outputs/reid_ranking_dataset_v1/dataset_card.md
+!/outputs/reid_ranking_dataset_v1/split_config.json
+!/outputs/reid_ranking_dataset_v1/statistics.json
+
+!/outputs/hive_history_ranking_v2/
+/outputs/hive_history_ranking_v2/*
+!/outputs/hive_history_ranking_v2/DATASET_REPORT.md
+!/outputs/hive_history_ranking_v2/leakage_audit.json
+!/outputs/hive_history_ranking_v2/split_config.json
+!/outputs/hive_history_ranking_v2/statistics.json
+
+# Vendored third-party checkout; manage it separately or as a Git submodule.
+/external/
+
+*.png
+*.jpg

@@ -1,0 +1,68 @@
+experiment:
+  name: hive_history_v2
+  seed: 42
+  deterministic: true
+
+data:
+  dataset_root: ../outputs/hive_history_ranking_v2
+  project_root: ../..
+  train_manifest: train_data/events.jsonl
+  test_manifest: test_data/events.jsonl
+  validation_sequences: ["0019", "0028", "0030"]
+  lowres_size: [120, 512]
+  crop_size: [128, 64]
+  max_history: 5
+  max_candidates: 20
+  candidate_window_frames: 150
+  frame_cache_size: 64
+  candidate_box_mode: manifest_bbox
+  lr_match_iou: 0.5
+  include_competitor_history: true
+  competitor_history_frames: 30
+  metadata_features: [age_norm, age_squared, log_age]
+  teacher_margin_field: null
+  num_workers: 0
+  pin_memory: true
+
+model:
+  variant: hive_full
+  embedding_dim: 64
+  relation_dim: 96
+  metadata_hidden_dim: 16
+  scorer_hidden_dim: 96
+  dropout: 0.20
+  normalize_embeddings: true
+  freeze_appearance_encoder: false
+
+loss:
+  lambda_cls: 1.0
+  lambda_rank: 0.5
+  lambda_margin: 0.0
+  positive_weight: auto
+  margin_teacher_field: null
+  margin_loss: smooth_l1
+
+training:
+  epochs: 100
+  batch_size: 8
+  learning_rate: 0.001
+  weight_decay: 0.0002
+  optimizer: adamw
+  scheduler: cosine
+  min_learning_rate: 0.00001
+  amp: true
+  grad_clip_norm: 5.0
+  log_interval: 10
+  histogram_interval: 0
+  monitor: success_at_1
+  monitor_mode: max
+  early_stopping_patience: 10
+
+evaluation:
+  classification_threshold: 0.5
+  no_request_threshold: 0.5
+  ranking_ks: [1, 3, 5]
+  latency_warmup_batches: 5
+
+output:
+  root: runs
