@@ -242,8 +242,9 @@ CNN fallback is used. The modular encoder can later be replaced by cached detect
 
 ## Scientific limitations
 
-- The candidate pool is HR-ReID-preselected and therefore not yet deployable end to end.
-- Only part of the pool matches an actual LR tracker detection.
+- The legacy v1 candidate pool is HR-ReID-preselected; v2 instead uses the LR-only pool.
+- V2 still assumes that the switch event has already been supplied; trigger detection is not
+  part of this ranker.
 - Competing LR histories are missing for some events.
 - Association matrices and motion residuals are unavailable.
 - Candidate correctness is not measured correction utility.
