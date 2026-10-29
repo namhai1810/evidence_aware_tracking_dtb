@@ -1,0 +1,48 @@
+experiment:
+  name: panorama_ecia_full_zero_shot
+  protocol: quadtrack_frozen_zero_shot
+
+data:
+  manual_root: ../cvat_packages_trim300_last100/object_tracking_prepared_manual_dataset
+  benchmark_root: ../benchmark_data
+  trim_start_frames: 300
+  trim_end_frames: 100
+  splits:
+    train: [normal_walking, crossing, partial_occ]
+    val: [seam]
+    test: [full_occ]
+  sources:
+    normal_walking: 20261028T082400Z_46324651_normal_walking
+    crossing: 20261028T082643Z_5f566a39_crossing
+    seam: 20261028T082930Z_153a02a2_seam
+    partial_occ: 20261028T083330Z_9fe9298b_partial_occ
+    full_occ: 20261028T083518Z_e7ada31a_full_occ
+
+event_generation:
+  fps: 30.0
+  evaluation_iou: 0.50
+  lowres_width: 512
+  lowres_height: 120
+  history_frames: 150
+  max_history: 5
+  candidate_window_frames: 150
+  max_candidates: 20
+  appearance_candidates: 10
+  recent_candidates: 5
+  diverse_candidates: 5
+  min_spacing_frames: 3
+
+inference:
+  max_competitors: 12
+  competitor_history_frames: 30
+  competitor_samples: 3
+  max_segment_gap: 30
+  batch_size: 8
+
+frozen_models:
+  hive_checkpoint: hr_finding/runs/hive_history_v2_seed42/checkpoints/best.pt
+  reid_model: yolo26n-reid.onnx
+  ecia_checkpoint: outputs/hive_ecia_experiment/full/training/best.pt
+  ecia_thresholds: outputs/hive_ecia_experiment/full/validation_thresholds.json
+
+output_root: outputs/panorama_ecia_zero_shot

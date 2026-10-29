@@ -1,0 +1,61 @@
+experiment:
+  name: hive_v2_lightweight_ecia
+  seed: 42
+  ablation: full  # base_only | base_hr_gain | full
+
+model:
+  embedding_dim: 512
+  projection_dim: 64
+  relation_hidden_dim: 32
+  event_hidden_dim: 16
+  parameter_limit: 50000
+  expected_trainable_parameters: 43684
+  max_competitors: 12
+
+data:
+  # Embeddings are created by frozen yolo26n-reid.onnx. These cache paths are
+  # generated automatically by prepare_data.py before ECIA training.
+  train_cache: outputs/hive_ecia_cache/train.npz
+  validation_cache: outputs/hive_ecia_cache/validation.npz
+  required_sample_kinds: [positive, negative, hard_negative, no_merge]
+  train_sequences: ["0015", "0018", "0020", "0021", "0022", "0023", "0024", "0026", "0027", "0029"]
+  validation_sequences: ["0019", "0028"]
+  calibration_sequences: ["0030"]
+  test_sequences: ["0016", "0017", "0025", "0031"]
+  sample_weights:
+    positive: 1.0
+    negative: 1.0
+    hard_negative: 2.0
+    no_merge: 1.5
+
+loss:
+  base_classification_weight: 0.5
+  fused_classification_weight: 1.0
+  margin_ranking_weight: 0.25
+  wrong_merge_weight: 0.5
+  ranking_margin: 0.20
+
+training:
+  epochs: 50
+  batch_size: 128
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  gradient_clip_norm: 1.0
+  patience: 8
+  num_workers: 0
+  device: auto
+
+inference:
+  min_old_probability: 0.50
+  min_old_margin: 0.10
+  max_segment_gap: 30
+  embedding_cache_dir: outputs/hive_ecia_embedding_cache
+  # Exactly one selected historical HR crop is encoded per event. Old, target,
+  # and competitor prototypes remain LR, matching the requested protocol.
+  max_hr_crops_per_event: 1
+
+calibration:
+  old_probability_grid: [0.30, 0.40, 0.50, 0.60, 0.70, 0.80]
+  old_margin_grid: [0.00, 0.05, 0.10, 0.15, 0.20, 0.30]
+  idsw_reduction_weight: 0.10
+  wrong_correction_penalty: 0.10

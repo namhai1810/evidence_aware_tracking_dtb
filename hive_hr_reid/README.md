@@ -292,3 +292,41 @@ Các regression test đã pass, gồm replay đúng tracklet, từ chối merge 
 same-frame collision, perfect tracking có HOTA bằng 1.0 và policy không đọc các
 evaluation/GT fields.
 
+## 8. Ablation HR↔HR sau frozen HIVE selection
+
+Một ablation bổ sung giữ nguyên checkpoint và historical frame do HIVE v2 chọn,
+nhưng thay old history, target và competitor LR crops bằng crop lấy trực tiếp từ
+frame gốc `2048×480`. Bbox vẫn là prediction của tracker; GT không đi vào ReID
+score hoặc quyết định merge.
+
+| Method | IDSW ↓ | IDF1 ↑ | HOTA ↑ | Actually fixed | Wrong |
+|---|---:|---:|---:|---:|---:|
+| LR-only | 92 | 0.4476 | 0.3618 | 0 | 0 |
+| HIVE HR↔LR hiện tại | **88** | **0.4503** | **0.3630** | 4 | 0 |
+| HIVE HR↔HR, giữ threshold cũ | 89 | 0.4482 | 0.3621 | 3 | 0 |
+| HIVE HR↔HR, tune trên validation | **88** | 0.4482 | 0.3621 | 4 | 0 |
+
+HR↔HR làm `evidence_bridge` và `evidence_margin` tốt hơn rõ rệt trên 58 event
+HIVE chọn đúng identity, nhưng không cải thiện `old-target similarity` và làm
+`target margin` giảm ở nhiều event. Sau khi tune validation, số ID switch sửa
+được vẫn là 4; hai trong bốn event khác với HR↔LR. Vì các segment được merge
+khác nhau, HR↔HR có cùng IDSW nhưng IDF1/HOTA thấp hơn.
+
+Ablation này cũng không cùng ngân sách: HR↔LR dùng 92 historical HR crops trên
+test, còn all-HR dùng 2,421 crops, trung bình 26.3 crops/event. ReID vẫn resize
+mỗi crop về `224×224`. Kết quả hiện tại không ủng hộ việc thay toàn bộ context
+bằng HR như một cải tiến tracking.
+
+Chạy lại:
+
+```bash
+cd /home/dtb/workspace/evidence_aware_tracking/code
+bash run_hive_v2_hr_hr_ablation.sh --device cpu
+```
+
+Code và report:
+
+- `hive_hr_reid/run_hr_hr_ablation.py`
+- `outputs/hive_v2_hr_hr_ablation/full_run/REPORT.md`
+- `outputs/hive_v2_hr_hr_ablation/full_run/summary.json`
+

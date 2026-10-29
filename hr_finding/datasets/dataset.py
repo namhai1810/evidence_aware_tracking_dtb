@@ -80,7 +80,12 @@ class HIVERankingDataset(Dataset):
         if not original_frames_root.is_absolute():
             original_frames_root = self.project_root / original_frames_root
         self.original_frames_root = original_frames_root
-        self.tracking_pattern = "{sequence}_yolo11l_botsort_reid_pre512x120.txt"
+        self.tracking_pattern = str(
+            data_config.get(
+                "tracking_pattern",
+                "{sequence}_yolo11l_botsort_reid_pre512x120.txt",
+            )
+        )
         self._tracking_cache: dict[str, dict] = {}
         self.metadata_dim = 3
 

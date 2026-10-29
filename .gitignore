@@ -93,3 +93,4 @@ events.out.tfevents.*
 *.jpg
 *.svg
 *.pdf
+test_*
