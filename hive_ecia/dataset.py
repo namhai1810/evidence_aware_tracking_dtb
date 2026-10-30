@@ -292,7 +292,13 @@ def save_embedding_cache(
 def load_embedding_cache(path: Path) -> ECIADataset:
     """Load the non-pickle NPZ cache and reconstruct variable-length samples."""
 
-    payload = np.load(Path(path), allow_pickle=False)
+    # ``NpzFile.__getitem__`` decompresses an array on every access. Accessing
+    # ``payload["old"]`` and friends inside the sample loop therefore expanded
+    # the same 30 MB cache thousands of times. Materialize each member once so
+    # parallel ECIA jobs spend time training rather than repeatedly inflating
+    # identical ZIP entries.
+    with np.load(Path(path), allow_pickle=False) as archive:
+        payload = {key: archive[key] for key in archive.files}
     samples = []
     max_competitors = payload["competitors"].shape[1]
     for index in range(payload["old"].shape[0]):

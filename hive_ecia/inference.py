@@ -21,6 +21,12 @@ from hive_hr_reid import run_experiment as baseline
 
 from .dataset import normalize_embedding
 from .model import ECIA, count_trainable_parameters
+from .reid_encoders import (
+    ReIDEncoder,
+    build_reid_encoder,
+    encoder_fingerprint,
+    resolve_reid_settings,
+)
 
 
 class CropRequest(NamedTuple):
@@ -44,7 +50,7 @@ class DiskEmbeddingCache:
 
     def encode(
         self,
-        encoder: baseline.OpenCVONNXReID,
+        encoder: ReIDEncoder,
         requests: list[CropRequest],
     ) -> list[np.ndarray | None]:
         """Load cache hits and batch-encode only missing, non-empty crops."""
@@ -96,7 +102,7 @@ def extract_event_embeddings(
     lr_frames: dict[int, list[tuple]],
     image_cache: baseline.ImageCache,
     embedding_cache: DiskEmbeddingCache,
-    encoder: baseline.OpenCVONNXReID,
+    encoder: ReIDEncoder,
 ) -> dict | None:
     """Create the exact ECIA inputs while using at most one HR crop.
 
@@ -118,7 +124,11 @@ def extract_event_embeddings(
         path = args.hive_dataset_root / query["crop_path"]
         add(
             "old",
-            crop_key(str(path), query["bbox_lr_clipped_xyxy"], "lr_512x120"),
+            crop_key(
+                str(path),
+                query["bbox_lr_clipped_xyxy"],
+                f"lr_{args.lowres_width}x{args.lowres_height}",
+            ),
             cv2.imread(str(path)),
         )
 
@@ -128,7 +138,11 @@ def extract_event_embeddings(
         path = args.hive_dataset_root / target_record["crop_path"]
         add(
             "target",
-            crop_key(str(path), target_record["bbox_lr_clipped_xyxy"], "lr_512x120"),
+            crop_key(
+                str(path),
+                target_record["bbox_lr_clipped_xyxy"],
+                f"lr_{args.lowres_width}x{args.lowres_height}",
+            ),
             cv2.imread(str(path)),
         )
 
@@ -165,7 +179,11 @@ def extract_event_embeddings(
             source = args.dataset_root / event["sequence"] / "img1" / f"{frame:06d}.jpg"
             add(
                 group,
-                crop_key(str(source), row[1], "lr_512x120"),
+                crop_key(
+                    str(source),
+                    row[1],
+                    f"lr_{args.lowres_width}x{args.lowres_height}",
+                ),
                 baseline.lowres_track_crop(
                     image_cache,
                     args.dataset_root,
@@ -279,7 +297,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hive-checkpoint", type=Path, default=baseline.DEFAULT_CHECKPOINT)
     parser.add_argument("--dataset-root", type=Path, default=baseline.DEFAULT_DATASET)
     parser.add_argument("--hive-dataset-root", type=Path, default=baseline.DEFAULT_HIVE_DATASET)
-    parser.add_argument("--reid-model", type=Path, default=baseline.DEFAULT_REID)
+    parser.add_argument("--reid-model", type=Path, default=None)
+    parser.add_argument(
+        "--reid-encoder",
+        choices=("onnx", "osnet_x1_0", "osnet_ain_x1_0"),
+        default=None,
+    )
     parser.add_argument("--lr-pred-dir", type=Path, default=baseline.DEFAULT_LR_PREDICTIONS)
     parser.add_argument(
         "--lr-pred-pattern", default="{sequence}_yolo11l_botsort_reid_pre512x120.txt"
@@ -319,6 +342,7 @@ def main() -> int:
     if args.output.exists() and not args.overwrite:
         raise FileExistsError(f"Output exists: {args.output}; pass --overwrite")
     config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
+    reid_kind, reid_checkpoint = resolve_reid_settings(args, config)
     device = torch.device(args.device)
     inference_config = dict(config["inference"])
     if args.thresholds_json is not None:
@@ -383,8 +407,8 @@ def main() -> int:
         )
         for sequence in sorted({event["sequence"] for event in events})
     }
-    encoder = baseline.OpenCVONNXReID(args.reid_model, device)
-    model_hash = baseline.sha256(args.reid_model)
+    encoder = build_reid_encoder(reid_kind, reid_checkpoint, device)
+    model_hash = encoder_fingerprint(reid_kind, reid_checkpoint)
     embedding_cache = DiskEmbeddingCache(
         Path(config["inference"]["embedding_cache_dir"]), model_hash
     )

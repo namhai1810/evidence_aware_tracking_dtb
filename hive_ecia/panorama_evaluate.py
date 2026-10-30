@@ -32,6 +32,7 @@ from .inference import (
 )
 from .model import ECIA, count_trainable_parameters
 from .panorama_dataset import CODE_ROOT, resolve_config_path
+from .reid_encoders import build_reid_encoder, encoder_fingerprint
 
 
 def parse_args() -> argparse.Namespace:
@@ -58,6 +59,12 @@ def parse_args() -> argparse.Namespace:
         help="Override frozen_models.ecia_thresholds with QuadTrack-calibrated thresholds.",
     )
     parser.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--reid-model", type=Path, default=None)
+    parser.add_argument(
+        "--reid-encoder",
+        choices=("onnx", "osnet_x1_0", "osnet_ain_x1_0"),
+        default="onnx",
+    )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument(
         "--all-sequences",
@@ -190,6 +197,8 @@ def main() -> int:
         model_paths["ecia_checkpoint"] = args.ecia_checkpoint.resolve()
     if args.ecia_thresholds is not None:
         model_paths["ecia_thresholds"] = args.ecia_thresholds.resolve()
+    if args.reid_model is not None:
+        model_paths["reid_model"] = args.reid_model.resolve()
     for name, path in model_paths.items():
         if not path.exists():
             raise FileNotFoundError(f"Missing frozen {name}: {path}")
@@ -260,19 +269,23 @@ def main() -> int:
         sequence: baseline.load_mot(event_root / "predictions" / f"{sequence}.txt", ground_truth=False)
         for sequence in evaluation_sequences
     }
+    actual_lr_size = audit.get("physical_lr_size") or (
+        int(config["event_generation"]["lowres_width"]),
+        int(config["event_generation"]["lowres_height"]),
+    )
     extraction_args = argparse.Namespace(
         hive_dataset_root=event_root,
         dataset_root=event_root / "dataset",
         competitor_history_frames=int(config["inference"]["competitor_history_frames"]),
         competitor_samples=int(config["inference"]["competitor_samples"]),
         max_competitors=int(config["inference"]["max_competitors"]),
-        lowres_width=int(config["event_generation"]["lowres_width"]),
-        lowres_height=int(config["event_generation"]["lowres_height"]),
+        lowres_width=int(actual_lr_size[0]),
+        lowres_height=int(actual_lr_size[1]),
     )
-    encoder = baseline.OpenCVONNXReID(model_paths["reid_model"], device)
+    encoder = build_reid_encoder(args.reid_encoder, model_paths["reid_model"], device)
     embedding_cache = DiskEmbeddingCache(
         event_root / "embedding_cache",
-        baseline.sha256(model_paths["reid_model"]),
+        encoder_fingerprint(args.reid_encoder, model_paths["reid_model"]),
     )
     image_cache = baseline.ImageCache()
     decisions = []
@@ -443,7 +456,9 @@ def main() -> int:
             "hive_checkpoint_sha256": baseline.sha256(model_paths["hive_checkpoint"]),
             "ecia_checkpoint_sha256": baseline.sha256(model_paths["ecia_checkpoint"]),
             "reid_model_sha256": baseline.sha256(model_paths["reid_model"]),
+            "reid_encoder": args.reid_encoder,
             "reid_backend": encoder.backend,
+            "reid_load_audit": getattr(encoder, "load_audit", None),
         },
         "baseline_splits": baseline_splits,
         "test_baseline": before,

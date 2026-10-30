@@ -27,6 +27,12 @@ from .dataset import (
     save_embedding_cache,
 )
 from .inference import DiskEmbeddingCache, extract_event_embeddings
+from .reid_encoders import (
+    ReIDEncoder,
+    build_reid_encoder,
+    encoder_fingerprint,
+    resolve_reid_settings,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -35,7 +41,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset-root", type=Path, default=baseline.DEFAULT_DATASET)
     parser.add_argument("--hive-dataset-root", type=Path, default=baseline.DEFAULT_HIVE_DATASET)
     parser.add_argument("--hive-checkpoint", type=Path, default=baseline.DEFAULT_CHECKPOINT)
-    parser.add_argument("--reid-model", type=Path, default=baseline.DEFAULT_REID)
+    parser.add_argument("--reid-model", type=Path, default=None)
+    parser.add_argument(
+        "--reid-encoder",
+        choices=("onnx", "osnet_x1_0", "osnet_ain_x1_0"),
+        default=None,
+    )
     parser.add_argument("--lr-pred-dir", type=Path, default=baseline.DEFAULT_LR_PREDICTIONS)
     parser.add_argument(
         "--lr-pred-pattern", default="{sequence}_yolo11l_botsort_reid_pre512x120.txt"
@@ -267,7 +278,7 @@ def build_split(
     manifest: str,
     hive_config: dict,
     hive_state: dict,
-    encoder: baseline.OpenCVONNXReID,
+    encoder: ReIDEncoder,
     embedding_cache: DiskEmbeddingCache,
     image_cache: baseline.ImageCache,
     device: torch.device,
@@ -371,6 +382,7 @@ def build_split(
 def main() -> int:
     args = parse_args()
     config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
+    reid_kind, reid_checkpoint = resolve_reid_settings(args, config)
     data_config = config["data"]
     audit_named_splits(
         train=data_config["train_sequences"],
@@ -387,10 +399,10 @@ def main() -> int:
     device = torch.device(args.device)
     hive_state = baseline.load_checkpoint(args.hive_checkpoint.resolve(), "cpu")
     hive_config = hive_state["config"]
-    encoder = baseline.OpenCVONNXReID(args.reid_model, device)
+    encoder = build_reid_encoder(reid_kind, reid_checkpoint, device)
     embedding_cache = DiskEmbeddingCache(
         Path(config["inference"]["embedding_cache_dir"]),
-        baseline.sha256(args.reid_model),
+        encoder_fingerprint(reid_kind, reid_checkpoint),
     )
     image_cache = baseline.ImageCache()
 
@@ -432,8 +444,11 @@ def main() -> int:
     audit = {
         "hive_checkpoint": str(args.hive_checkpoint.resolve()),
         "hive_checkpoint_sha256": baseline.sha256(args.hive_checkpoint),
-        "reid_model": str(args.reid_model.resolve()),
-        "reid_model_sha256": baseline.sha256(args.reid_model),
+        "reid_encoder": reid_kind,
+        "reid_backend": encoder.backend,
+        "reid_model": str(reid_checkpoint),
+        "reid_model_sha256": baseline.sha256(reid_checkpoint),
+        "reid_load_audit": getattr(encoder, "load_audit", None),
         "hive_frozen": True,
         "reid_frozen": True,
         "calibration_sequences_accessed": False,
