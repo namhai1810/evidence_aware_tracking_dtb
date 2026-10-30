@@ -21,6 +21,26 @@ from .preprocessing import (
 )
 
 
+def resolve_bind_mount_path(path: Path) -> Path:
+    """Resolve the same workspace file on the host or inside the container."""
+    path = Path(path)
+    if path.exists():
+        return path
+    # Follow a broken host-side symlink whose target is valid inside the
+    # container, then apply the bind-mount alias below.
+    path = path.resolve(strict=False)
+    value = str(path)
+    for source, target in (
+        ("/workspace/", "/home/dtb/workspace/"),
+        ("/home/dtb/workspace/", "/workspace/"),
+    ):
+        if value.startswith(source):
+            candidate = Path(target + value[len(source) :])
+            if candidate.exists():
+                return candidate
+    return path
+
+
 class HIVERankingDataset(Dataset):
     """One item is one ID-switch event and its complete candidate ranking group."""
 
@@ -75,11 +95,11 @@ class HIVERankingDataset(Dataset):
         tracking_root = Path(split_config["source_files"]["lowres_predictions"])
         if not tracking_root.is_absolute():
             tracking_root = self.project_root / tracking_root
-        self.tracking_root = tracking_root
+        self.tracking_root = resolve_bind_mount_path(tracking_root)
         original_frames_root = Path(split_config["source_files"]["original_frames"])
         if not original_frames_root.is_absolute():
             original_frames_root = self.project_root / original_frames_root
-        self.original_frames_root = original_frames_root
+        self.original_frames_root = resolve_bind_mount_path(original_frames_root)
         self.tracking_pattern = str(
             data_config.get(
                 "tracking_pattern",
@@ -94,7 +114,8 @@ class HIVERankingDataset(Dataset):
 
     def _source_path(self, relative: str) -> Path:
         path = Path(relative)
-        return path if path.is_absolute() else self.project_root / path
+        path = path if path.is_absolute() else self.project_root / path
+        return resolve_bind_mount_path(path)
 
     def _tracking(self, sequence: str) -> dict:
         if sequence not in self._tracking_cache:
@@ -170,7 +191,9 @@ class HIVERankingDataset(Dataset):
                 self.max_history,
             )
             for slot, (frame, box, _) in enumerate(competitor_rows):
-                source = self.original_frames_root / sequence / "img1" / f"{frame:06d}.jpg"
+                source = resolve_bind_mount_path(
+                    self.original_frames_root / sequence / "img1" / f"{frame:06d}.jpg"
+                )
                 crop = reconstruct_lr_crop(source, box, self.lowres_hw, self.frame_cache)
                 competitor_images[slot] = image_to_tensor(crop, self.crop_hw)
                 competitor_mask[slot] = True

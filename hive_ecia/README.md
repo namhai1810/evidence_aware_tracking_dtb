@@ -350,6 +350,30 @@ labels, and fails on any sequence overlap. The evaluator writes GT-free
 decisions before joining manual GT. Final artifacts are written under
 `outputs/panorama_ecia_zero_shot/zero_shot_evaluation/`.
 
+### Recovery-Aware HR Fusion
+
+`recovery_aware.py` is the follow-up Full model built on the frozen
+OSNet-AIN D+M+C Base-only checkpoint. Shared Projection, Base Association,
+and Abstain are copied from Base-only and frozen exactly. Only HR Gain and a
+12-feature gate are optimized (6,978 trainable / 44,244 total parameters).
+The gate observes LR confidence, LR competitor margins, HR-to-LR similarity,
+and distribution disagreement. Its loss includes fused classification,
+ranking, wrong-merge, Base-preservation, targeted recovery, and helpful versus
+harmful gate supervision.
+
+The split is video-disjoint: QuadTrack train builds the model, `0019/0028`
+select the epoch, `0030` selects probability/margin thresholds, and
+`0016/0017/0025/0031` are opened only for final testing. DTB is evaluation-only
+zero-shot data. `gate_override=0` disables HR on the same checkpoint and keeps
+the same threshold, providing a causal HR ablation rather than a separately
+trained Base model.
+
+The completed experiment is documented here:
+
+```text
+outputs/hive_ecia_recovery_aware_report/20261030_osnet_ain_recovery_v1/REPORT.md
+```
+
 ## 9. Source layout
 
 ```text
@@ -364,6 +388,11 @@ hive_ecia/
 ├── calibrate.py   # validation-only operational threshold selection
 ├── evaluate.py    # post-hoc replay and MOT metrics
 ├── compare.py     # held-out comparison across three ablations
+├── recovery_aware.py      # frozen Base + recovery-aware HR Gain/Gate
+├── recovery_aware_loss.py # wrong-merge and Base-preservation objectives
+├── train_recovery_aware.py
+├── report_recovery_aware.py
+├── recovery_aware_config.yaml
 ├── config.yaml
 ├── README.md
 └── tests/

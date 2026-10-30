@@ -26,6 +26,20 @@ class ReIDEncoder(Protocol):
     ) -> list[np.ndarray | None]: ...
 
 
+class CacheOnlyEncoder:
+    """Fail-fast placeholder used when every frozen embedding must be cached."""
+
+    backend = "content_addressed_cache_only"
+    load_audit = {"cache_only": True, "missing_crop_policy": "fail"}
+
+    def encode(
+        self, crops: list[np.ndarray], batch_size: int = 128
+    ) -> list[np.ndarray | None]:
+        raise RuntimeError(
+            f"Embedding cache miss for {len(crops)} crop(s) in --cache-only mode"
+        )
+
+
 def checkpoint_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:

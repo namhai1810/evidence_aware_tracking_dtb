@@ -94,3 +94,4 @@ events.out.tfevents.*
 *.svg
 *.pdf
 test_*
+!hive_ecia/tests/test_recovery_aware.py

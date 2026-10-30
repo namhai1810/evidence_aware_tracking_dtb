@@ -21,7 +21,12 @@ from hive_hr_reid import run_experiment as baseline
 
 from .dataset import normalize_embedding
 from .model import ECIA, count_trainable_parameters
+from .recovery_aware import (
+    ARCHITECTURE_NAME as RECOVERY_AWARE_ARCHITECTURE,
+    build_from_checkpoint as build_recovery_aware_from_checkpoint,
+)
 from .reid_encoders import (
+    CacheOnlyEncoder,
     ReIDEncoder,
     build_reid_encoder,
     encoder_fingerprint,
@@ -37,16 +42,35 @@ class CropRequest(NamedTuple):
 class DiskEmbeddingCache:
     """Content-addressed `.npy` cache for frozen ReID embeddings."""
 
-    def __init__(self, root: Path, model_fingerprint: str) -> None:
+    def __init__(
+        self,
+        root: Path,
+        model_fingerprint: str,
+        fallback_roots: list[Path] | None = None,
+    ) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
+        self.fallback_roots = [Path(value) for value in (fallback_roots or [])]
         self.model_fingerprint = model_fingerprint
 
-    def _path(self, key: str) -> Path:
+    def _path(self, key: str, root: Path | None = None) -> Path:
         digest = hashlib.sha256(
             f"{self.model_fingerprint}|{key}".encode("utf-8")
         ).hexdigest()
-        return self.root / digest[:2] / f"{digest}.npy"
+        return (root or self.root) / digest[:2] / f"{digest}.npy"
+
+    @staticmethod
+    def _key_aliases(key: str) -> list[str]:
+        """Resolve the same bind-mounted crop across host/container paths."""
+        aliases = [key]
+        replacements = (
+            ("/home/dtb/workspace/", "/workspace/"),
+            ("/workspace/", "/home/dtb/workspace/"),
+        )
+        for source, target in replacements:
+            if source in key:
+                aliases.append(key.replace(source, target))
+        return list(dict.fromkeys(aliases))
 
     def encode(
         self,
@@ -59,9 +83,17 @@ class DiskEmbeddingCache:
         missing_indices = []
         missing_crops = []
         for index, request in enumerate(requests):
-            path = self._path(request.key)
-            if path.exists():
-                results[index] = normalize_embedding(np.load(path, allow_pickle=False))
+            cached_path = next(
+                (
+                    self._path(key, root)
+                    for root in (self.root, *self.fallback_roots)
+                    for key in self._key_aliases(request.key)
+                    if self._path(key, root).exists()
+                ),
+                None,
+            )
+            if cached_path is not None:
+                results[index] = normalize_embedding(np.load(cached_path, allow_pickle=False))
             elif request.crop is not None and request.crop.size:
                 missing_indices.append(index)
                 missing_crops.append(request.crop)
@@ -333,7 +365,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--iou", type=float, default=0.5)
     parser.add_argument("--max-segment-gap", type=int, default=30)
     parser.add_argument("--visual-examples", type=int, default=0)
+    parser.add_argument(
+        "--gate-override",
+        type=float,
+        default=None,
+        help="Recovery-aware causal ablation; 0 disables HR using the same checkpoint.",
+    )
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--cache-only",
+        action="store_true",
+        help="Read the checkpoint-fingerprinted embedding cache and fail on any miss.",
+    )
     return parser.parse_args()
 
 
@@ -358,20 +401,26 @@ def main() -> int:
     # Load ECIA only. HIVE/ReID checkpoints remain frozen and are used under
     # no-grad inference; there is no optimizer in this module.
     checkpoint = torch.load(args.ecia_checkpoint, map_location="cpu", weights_only=False)
-    model = ECIA(**{
-        key: config["model"][key]
-        for key in (
-            "embedding_dim",
-            "projection_dim",
-            "relation_hidden_dim",
-            "event_hidden_dim",
-            "parameter_limit",
-        )
-    }).to(device)
-    model.load_state_dict(checkpoint["model"], strict=True)
-    model.eval()
-    if count_trainable_parameters(model) > int(config["model"]["parameter_limit"]):
-        raise RuntimeError("Loaded ECIA exceeds configured parameter limit")
+    recovery_aware = checkpoint.get("architecture") == RECOVERY_AWARE_ARCHITECTURE
+    if recovery_aware:
+        model = build_recovery_aware_from_checkpoint(checkpoint, device)
+    else:
+        if args.gate_override is not None:
+            raise ValueError("--gate-override is supported only by Recovery-Aware ECIA")
+        model = ECIA(**{
+            key: config["model"][key]
+            for key in (
+                "embedding_dim",
+                "projection_dim",
+                "relation_hidden_dim",
+                "event_hidden_dim",
+                "parameter_limit",
+            )
+        }).to(device)
+        model.load_state_dict(checkpoint["model"], strict=True)
+        model.eval()
+        if count_trainable_parameters(model) > int(config["model"]["parameter_limit"]):
+            raise RuntimeError("Loaded ECIA exceeds configured parameter limit")
 
     hive_state = baseline.load_checkpoint(args.hive_checkpoint.resolve(), "cpu")
     hive_config = hive_state["config"]
@@ -407,10 +456,17 @@ def main() -> int:
         )
         for sequence in sorted({event["sequence"] for event in events})
     }
-    encoder = build_reid_encoder(reid_kind, reid_checkpoint, device)
+    encoder = CacheOnlyEncoder() if args.cache_only else build_reid_encoder(
+        reid_kind, reid_checkpoint, device
+    )
     model_hash = encoder_fingerprint(reid_kind, reid_checkpoint)
     embedding_cache = DiskEmbeddingCache(
-        Path(config["inference"]["embedding_cache_dir"]), model_hash
+        Path(config["inference"]["embedding_cache_dir"]),
+        model_hash,
+        fallback_roots=[
+            Path(value)
+            for value in config["inference"].get("embedding_cache_fallback_dirs", [])
+        ],
     )
     image_cache = baseline.ImageCache()
     decisions = []
@@ -444,7 +500,10 @@ def main() -> int:
 
         tensors = tensorize_event(embeddings, device)
         with torch.no_grad():
-            output = model(**tensors, ablation=checkpoint.get("ablation", "full"))
+            forward_kwargs = {"ablation": checkpoint.get("ablation", "full")}
+            if recovery_aware:
+                forward_kwargs["gate_override"] = args.gate_override
+            output = model(**tensors, **forward_kwargs)
         decision = recovery_decision(
             output.decision_logits,
             min_old_probability=float(inference_config["min_old_probability"]),
@@ -466,6 +525,8 @@ def main() -> int:
                 **common,
                 **decision,
                 "gate": float(output.gate[0, 0]),
+                "gate_override": args.gate_override,
+                "model_architecture": checkpoint.get("architecture", "lightweight_ecia_v1"),
                 "hr_available": bool(embeddings["hr_available"]),
                 "hr_crop_count": embeddings["hr_crop_count"],
                 "competitor_track_ids": competitor_ids,

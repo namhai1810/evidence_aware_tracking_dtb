@@ -31,8 +31,12 @@ from .inference import (
     tensorize_event,
 )
 from .model import ECIA, count_trainable_parameters
+from .recovery_aware import (
+    ARCHITECTURE_NAME as RECOVERY_AWARE_ARCHITECTURE,
+    build_from_checkpoint as build_recovery_aware_from_checkpoint,
+)
 from .panorama_dataset import CODE_ROOT, resolve_config_path
-from .reid_encoders import build_reid_encoder, encoder_fingerprint
+from .reid_encoders import CacheOnlyEncoder, build_reid_encoder, encoder_fingerprint
 
 
 def parse_args() -> argparse.Namespace:
@@ -61,11 +65,28 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--reid-model", type=Path, default=None)
     parser.add_argument(
+        "--embedding-cache-dir",
+        type=Path,
+        default=None,
+        help="Writable overlay cache; the event-root cache remains a read-only fallback.",
+    )
+    parser.add_argument(
         "--reid-encoder",
         choices=("onnx", "osnet_x1_0", "osnet_ain_x1_0"),
         default="onnx",
     )
+    parser.add_argument(
+        "--cache-only",
+        action="store_true",
+        help="Read checkpoint-fingerprinted embeddings only and fail on any cache miss.",
+    )
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--gate-override",
+        type=float,
+        default=None,
+        help="Recovery-aware causal ablation; 0 disables HR using the same checkpoint.",
+    )
     parser.add_argument(
         "--all-sequences",
         action="store_true",
@@ -254,14 +275,20 @@ def main() -> int:
             f"{checkpoint.get('ablation')!r}"
         )
     ecia_config = checkpoint["config"]
-    ecia = ECIA(**{
-        key: ecia_config["model"][key]
-        for key in ("embedding_dim", "projection_dim", "relation_hidden_dim", "event_hidden_dim", "parameter_limit")
-    }).to(device)
-    ecia.load_state_dict(checkpoint["model"], strict=True)
-    ecia.eval()
-    if count_trainable_parameters(ecia) != int(ecia_config["model"]["expected_trainable_parameters"]):
-        raise RuntimeError("ECIA parameter-count mismatch")
+    recovery_aware = checkpoint.get("architecture") == RECOVERY_AWARE_ARCHITECTURE
+    if recovery_aware:
+        ecia = build_recovery_aware_from_checkpoint(checkpoint, device)
+    else:
+        if args.gate_override is not None:
+            raise ValueError("--gate-override is supported only by Recovery-Aware ECIA")
+        ecia = ECIA(**{
+            key: ecia_config["model"][key]
+            for key in ("embedding_dim", "projection_dim", "relation_hidden_dim", "event_hidden_dim", "parameter_limit")
+        }).to(device)
+        ecia.load_state_dict(checkpoint["model"], strict=True)
+        ecia.eval()
+        if count_trainable_parameters(ecia) != int(ecia_config["model"]["expected_trainable_parameters"]):
+            raise RuntimeError("ECIA parameter-count mismatch")
     threshold_payload = json.loads(model_paths["ecia_thresholds"].read_text())
     thresholds = threshold_payload["selected_thresholds"]
 
@@ -282,10 +309,23 @@ def main() -> int:
         lowres_width=int(actual_lr_size[0]),
         lowres_height=int(actual_lr_size[1]),
     )
-    encoder = build_reid_encoder(args.reid_encoder, model_paths["reid_model"], device)
+    encoder = CacheOnlyEncoder() if args.cache_only else build_reid_encoder(
+        args.reid_encoder, model_paths["reid_model"], device
+    )
+    original_embedding_cache = event_root / "embedding_cache"
+    embedding_cache_root = (
+        args.embedding_cache_dir.resolve()
+        if args.embedding_cache_dir is not None
+        else original_embedding_cache
+    )
     embedding_cache = DiskEmbeddingCache(
-        event_root / "embedding_cache",
+        embedding_cache_root,
         encoder_fingerprint(args.reid_encoder, model_paths["reid_model"]),
+        fallback_roots=(
+            [original_embedding_cache]
+            if embedding_cache_root != original_embedding_cache
+            else []
+        ),
     )
     image_cache = baseline.ImageCache()
     decisions = []
@@ -316,7 +356,10 @@ def main() -> int:
             continue
         tensors = tensorize_event(embeddings, device)
         with torch.no_grad():
-            result = ecia(**tensors, ablation=args.ablation)
+            forward_kwargs = {"ablation": args.ablation}
+            if recovery_aware:
+                forward_kwargs["gate_override"] = args.gate_override
+            result = ecia(**tensors, **forward_kwargs)
         decision = recovery_decision(
             result.decision_logits,
             min_old_probability=float(thresholds["min_old_probability"]),
@@ -336,6 +379,8 @@ def main() -> int:
                 **common,
                 **decision,
                 "gate": float(result.gate[0, 0]),
+                "gate_override": args.gate_override,
+                "model_architecture": checkpoint.get("architecture", "lightweight_ecia_v1"),
                 "hr_available": bool(embeddings["hr_available"]),
                 "hr_crop_count": int(embeddings["hr_crop_count"]),
                 "competitor_track_ids": competitors,
@@ -452,6 +497,8 @@ def main() -> int:
             "physical_lr_size": audit.get("physical_lr_size"),
             "frozen_quadtrack_ecia_epoch": int(checkpoint["epoch"]),
             "ecia_ablation": args.ablation,
+            "ecia_architecture": checkpoint.get("architecture", "lightweight_ecia_v1"),
+            "gate_override": args.gate_override,
             "frozen_quadtrack_thresholds": thresholds,
             "hive_checkpoint_sha256": baseline.sha256(model_paths["hive_checkpoint"]),
             "ecia_checkpoint_sha256": baseline.sha256(model_paths["ecia_checkpoint"]),

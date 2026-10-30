@@ -359,7 +359,20 @@ def clipped_crop(image: np.ndarray, bbox: list[float] | np.ndarray, pad_fraction
 
 def source_path(relative: str | Path) -> Path:
     path = Path(relative)
-    return path if path.is_absolute() else PROJECT_ROOT / path
+    path = path if path.is_absolute() else PROJECT_ROOT / path
+    if path.exists():
+        return path
+    path = path.resolve(strict=False)
+    value = str(path)
+    for source, target in (
+        ("/workspace/", "/home/dtb/workspace/"),
+        ("/home/dtb/workspace/", "/workspace/"),
+    ):
+        if value.startswith(source):
+            candidate = Path(target + value[len(source) :])
+            if candidate.exists():
+                return candidate
+    return path
 
 
 def hr_candidate_crop(cache: ImageCache, candidate: dict) -> np.ndarray:
@@ -375,7 +388,7 @@ def lowres_track_crop(
     bbox: np.ndarray,
     lowres_size: tuple[int, int],
 ) -> np.ndarray:
-    image = cache.read(dataset_root / sequence / "img1" / f"{frame:06d}.jpg")
+    image = cache.read(source_path(dataset_root / sequence / "img1" / f"{frame:06d}.jpg"))
     resized = cv2.resize(image, lowres_size, interpolation=cv2.INTER_AREA)
     scale_x = lowres_size[0] / image.shape[1]
     scale_y = lowres_size[1] / image.shape[0]
@@ -693,9 +706,11 @@ def basic_metrics(
     }
     aggregate = aggregate_metrics(per_sequence)
     if include_hota:
-        hota_rows = [
-            evaluate_hota_raw(gt_cache[sequence], predictions[sequence]) for sequence in sequences
-        ]
+        hota_rows = []
+        for sequence in sequences:
+            raw = evaluate_hota_raw(gt_cache[sequence], predictions[sequence])
+            per_sequence[sequence].update(combine_hota_raw([raw]))
+            hota_rows.append(raw)
         aggregate.update(combine_hota_raw(hota_rows))
     return {"aggregate": aggregate, "sequences": per_sequence}
 
