@@ -267,29 +267,47 @@ class ImageCache:
 
 
 class OpenCVONNXReID:
-    """Small ONNX ReID runner that needs no onnxruntime installation.
+    """Small ONNX ReID runner with an ONNX Runtime compatibility path.
 
     It matches Ultralytics' exported-model preprocessing: BGR-to-RGB, bilinear
     resize to 224x224, float32 scaling to [0, 1], and BCHW layout. OpenCV DNN
-    supports the model's dynamic batch and emits the same 512-D embeddings.
+    was the original backend.  Recent OpenCV builds cannot execute the dynamic
+    attention ``Reshape`` nodes in this model, so ONNX Runtime is preferred
+    when installed and OpenCV remains the dependency-free fallback.
     """
 
     def __init__(self, model: Path, device: torch.device, image_size: int = 224) -> None:
         if model.suffix.lower() != ".onnx":
             raise ValueError("The dependency-free ReID runner currently expects an ONNX model")
-        self.net = cv2.dnn.readNetFromONNX(str(model.resolve()))
         self.image_size = int(image_size)
-        self.backend = "opencv_dnn_cpu"
-        if device.type == "cuda":
-            # Many opencv-python wheels are CPU-only. Select CUDA only when the
-            # runtime exposes a CUDA device; otherwise CPU remains deterministic.
-            try:
-                if cv2.cuda.getCudaEnabledDeviceCount() > 0:
-                    self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
-                    self.net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
-                    self.backend = "opencv_dnn_cuda"
-            except (AttributeError, cv2.error):
-                pass
+        self.session = None
+        self.input_name = None
+        self.output_names = None
+        try:
+            import onnxruntime as ort
+
+            providers = ["CPUExecutionProvider"]
+            available = set(ort.get_available_providers())
+            if device.type == "cuda" and "CUDAExecutionProvider" in available:
+                providers.insert(0, "CUDAExecutionProvider")
+            self.session = ort.InferenceSession(str(model.resolve()), providers=providers)
+            self.input_name = self.session.get_inputs()[0].name
+            self.output_names = [output.name for output in self.session.get_outputs()]
+            self.backend = f"onnxruntime_{self.session.get_providers()[0]}"
+            self.net = None
+        except ImportError:
+            self.net = cv2.dnn.readNetFromONNX(str(model.resolve()))
+            self.backend = "opencv_dnn_cpu"
+            if device.type == "cuda":
+                # Many opencv-python wheels are CPU-only. Select CUDA only when
+                # the runtime exposes a CUDA device.
+                try:
+                    if cv2.cuda.getCudaEnabledDeviceCount() > 0:
+                        self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
+                        self.net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
+                        self.backend = "opencv_dnn_cuda"
+                except (AttributeError, cv2.error):
+                    pass
 
     def encode(self, crops: list[np.ndarray], batch_size: int = 128) -> list[np.ndarray | None]:
         valid = [crop is not None and bool(crop.size) for crop in crops]
@@ -306,8 +324,13 @@ class OpenCVONNXReID:
                 )
                 rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
                 tensors.append(rgb.transpose(2, 0, 1).astype(np.float32) / 255.0)
-            self.net.setInput(np.stack(tensors, axis=0))
-            output = np.asarray(self.net.forward(), dtype=np.float32).reshape(len(group), -1)
+            inputs = np.stack(tensors, axis=0)
+            if self.session is not None:
+                output = self.session.run(self.output_names, {self.input_name: inputs})[0]
+            else:
+                self.net.setInput(inputs)
+                output = self.net.forward()
+            output = np.asarray(output, dtype=np.float32).reshape(len(group), -1)
             features.extend(normalized(vector) for vector in output)
         iterator = iter(features)
         return [next(iterator) if keep else None for keep in valid]

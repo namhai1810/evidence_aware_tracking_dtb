@@ -106,6 +106,7 @@ def plot_results(
     correction: dict,
     ablation: str,
     scope_label: str,
+    baseline_name: str,
 ) -> None:
     figure, axes = plt.subplots(1, 4, figsize=(16, 4.5), constrained_layout=True)
     specs = (
@@ -117,7 +118,7 @@ def plot_results(
     for axis, (key, title, fmt) in zip(axes, specs):
         values = [float(baseline_metrics[key]), float(ecia_metrics[key])]
         bars = axis.bar(
-            ["YOLO+ByteTrack", display_name(ablation)],
+            [baseline_name, display_name(ablation)],
             values,
             color=["#64748b", "#10b981"],
         )
@@ -174,6 +175,12 @@ def main() -> int:
     evaluation_sequences = [
         sequence for split in evaluation_splits for sequence in splits[split]
     ]
+    physical_size = audit.get("physical_lr_size")
+    physical_size_label = (
+        f"{int(physical_size[0])}x{int(physical_size[1])}"
+        if physical_size and len(physical_size) == 2
+        else "unknown"
+    )
 
     model_paths = {
         key: resolve_config_path(value)
@@ -419,7 +426,17 @@ def main() -> int:
             "test_sequences": evaluation_sequences,
             "configured_test_sequences": configured_test_sequences,
             "evaluation_sequences": evaluation_sequences,
-            "evaluation_scope": "all_dtb_zero_shot" if args.all_sequences else "held_out_test",
+            "evaluation_scope": (
+                "all_dtb_physical_lr_zero_shot"
+                if args.all_sequences and audit.get("physical_lr_detection_tracking")
+                else "all_dtb_zero_shot"
+                if args.all_sequences
+                else "held_out_test"
+            ),
+            "physical_lr_detection_tracking": bool(
+                audit.get("physical_lr_detection_tracking", False)
+            ),
+            "physical_lr_size": audit.get("physical_lr_size"),
             "frozen_quadtrack_ecia_epoch": int(checkpoint["epoch"]),
             "ecia_ablation": args.ablation,
             "frozen_quadtrack_thresholds": thresholds,
@@ -439,9 +456,16 @@ def main() -> int:
         for row in outcomes:
             handle.write(json.dumps(row, separators=(",", ":")) + "\n")
     scope_label = (
-        "all five unseen DTB panorama sequences"
+        f"all five DTB physical-LR {physical_size_label} sequences"
+        if args.all_sequences and audit.get("physical_lr_detection_tracking")
+        else "all five unseen DTB panorama sequences"
         if args.all_sequences
         else "the held-out panorama full-occlusion sequence"
+    )
+    baseline_name = (
+        f"YOLO11l + BoT-SORT/ReID @ {physical_size_label}"
+        if audit.get("physical_lr_detection_tracking")
+        else "YOLO12l + ByteTrack"
     )
     plot_results(
         output,
@@ -450,6 +474,7 @@ def main() -> int:
         correction,
         args.ablation,
         scope_label,
+        baseline_name,
     )
 
     b, a = before["aggregate"], after["aggregate"]
@@ -468,7 +493,7 @@ def main() -> int:
         "",
         "| Method | IDSW ↓ | IDF1 ↑ | HOTA ↑ | MOTA ↑ |",
         "|---|---:|---:|---:|---:|",
-        f"| YOLO12l + ByteTrack | {b['id_switches']} | {b['idf1']:.4f} | {b['hota']:.4f} | {b['mota']:.4f} |",
+        f"| {baseline_name} | {b['id_switches']} | {b['idf1']:.4f} | {b['hota']:.4f} | {b['mota']:.4f} |",
         f"| Frozen HIVE v2 + {display_name(args.ablation)} | {a['id_switches']} | {a['idf1']:.4f} | {a['hota']:.4f} | {a['mota']:.4f} |",
         "",
         "## Per-sequence result",
@@ -479,7 +504,7 @@ def main() -> int:
             row
             for sequence in evaluation_sequences
             for row in (
-                f"| {sequence} | YOLO12l + ByteTrack | {before['sequences'][sequence]['id_switches']} | {before['sequences'][sequence]['idf1']:.4f} | {before['sequences'][sequence]['mota']:.4f} |",
+                f"| {sequence} | {baseline_name} | {before['sequences'][sequence]['id_switches']} | {before['sequences'][sequence]['idf1']:.4f} | {before['sequences'][sequence]['mota']:.4f} |",
                 f"| {sequence} | {display_name(args.ablation)} | {after['sequences'][sequence]['id_switches']} | {after['sequences'][sequence]['idf1']:.4f} | {after['sequences'][sequence]['mota']:.4f} |",
             )
         ],
@@ -500,7 +525,9 @@ def main() -> int:
         "## Scope",
         "",
         (
-            "This is a cross-dataset zero-shot aggregate over all five DTB videos. The legacy DTB train/val/test names are not used for fitting or model selection; all weights and thresholds remain frozen from QuadTrack. Because these results have now been observed, these videos must not later be used for tuning and still be claimed as held-out evaluation."
+            f"This is a cross-dataset zero-shot aggregate over all five DTB videos. The detector/tracker physically consumed {physical_size_label} frames, and its boxes were mapped back to the original panorama coordinates before GT evaluation and HR cropping. The legacy DTB train/val/test names are not used for fitting or model selection; all HIVE, ReID, and ECIA weights and thresholds remain frozen from QuadTrack. Because these results have now been observed, these videos must not later be used for tuning and still be claimed as held-out evaluation."
+            if args.all_sequences and audit.get("physical_lr_detection_tracking")
+            else "This is a cross-dataset zero-shot aggregate over all five DTB videos. The legacy DTB train/val/test names are not used for fitting or model selection; all weights and thresholds remain frozen from QuadTrack. Because these results have now been observed, these videos must not later be used for tuning and still be claimed as held-out evaluation."
             if args.all_sequences
             else "This is a zero-shot domain-generalization test with an oracle switch trigger. It evaluates recovery after a GT-confirmed switch is supplied; it does not evaluate online switch detection. The baseline tracker is YOLO12l + ByteTrack with appearance_reid=false. ReID is introduced only by the frozen ECIA evidence encoder."
         ),

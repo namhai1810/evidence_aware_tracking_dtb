@@ -1,5 +1,6 @@
 ultralytics>=8.3,<9
 opencv-python>=4.8,<6
+onnxruntime>=1.18,<2
 numpy>=1.23,<3
 scipy>=1.10,<2
 filterpy>=1.4.5,<2
