@@ -31,6 +31,7 @@ class OnlineRecoveryEngine:
         if mode not in {
             "baseline", "online", "hr_disabled",
             "base_guided_hr_disabled", "base_guided_online",
+            "base_guided_safety_online",
         }:
             raise ValueError(f"Unsupported online mode: {mode}")
         if mode != "baseline" and model_bundle is None:
@@ -402,7 +403,11 @@ class OnlineRecoveryEngine:
                 if attempted >= event_limit:
                     break
 
-        if self.mode in {"base_guided_hr_disabled", "base_guided_online"}:
+        if self.mode in {
+            "base_guided_hr_disabled",
+            "base_guided_online",
+            "base_guided_safety_online",
+        }:
             event_limit = int(self.config["base_guided_trigger"]["candidate"]["max_events_per_frame"])
             attempted = 0
             for observation in current_observations:
@@ -470,7 +475,58 @@ class OnlineRecoveryEngine:
                     self.counters["triggers"] += 1
                     self.counters["base_hr_requests"] += 1
 
-                if policy.request_hr and self.mode == "base_guided_online":
+                pre_query_safety = None
+                if policy.request_hr and self.mode == "base_guided_safety_online":
+                    pre_query_safety = self.registry.precheck_successor(
+                        old_token=proposal.old.token,
+                        new_token=proposal.new_token,
+                        new_observation_count=new_age,
+                        max_new_observations=int(
+                            self.config["history"]["max_new_observations_for_merge"]
+                        ),
+                    )
+
+                if (
+                    policy.request_hr
+                    and self.mode == "base_guided_safety_online"
+                    and pre_query_safety is not None
+                    and not pre_query_safety.applied
+                ):
+                    # Full ECIA could never produce an applicable merge under
+                    # the current registry state.  Preserve the no-merge
+                    # outcome while avoiding HIVE, image I/O and HR ReID.
+                    self.counters["prequery_safety_skips"] += 1
+                    self.counters[
+                        f"prequery_skip_{pre_query_safety.reason}"
+                    ] += 1
+                    decision = self.model_bundle.decide_from_prepared_base(prepared)
+                    decision.update(
+                        {
+                            "merge": False,
+                            "reason": f"prequery_safety_reject:{pre_query_safety.reason}",
+                            "base": prepared.diagnostics,
+                            "timing": {
+                                "base_ms": prepared.diagnostics["latency_ms"],
+                                "hive_ms": 0.0,
+                                "hr_ms": 0.0,
+                                "ecia_ms": 0.0,
+                            },
+                            "hr": {
+                                "requested": False,
+                                "would_request": True,
+                                "skipped_by_prequery": True,
+                                "crop_count": 0,
+                                "bytes_read": 0,
+                                "crop_pixels": 0,
+                            },
+                        }
+                    )
+                elif policy.request_hr and self.mode in {
+                    "base_guided_online",
+                    "base_guided_safety_online",
+                }:
+                    if self.mode == "base_guided_safety_online":
+                        self.counters["prequery_feasible_requests"] += 1
                     decision = self.model_bundle.recover_prepared_with_hr(
                         prepared=prepared,
                         proposal=proposal,
@@ -537,6 +593,16 @@ class OnlineRecoveryEngine:
                         "trigger": self.base_proposer.diagnostics(proposal),
                         "base": prepared.diagnostics,
                         "policy": BaseGuidedHRPolicy.diagnostics(policy),
+                        "pre_query_safety": (
+                            {
+                                "checked": True,
+                                "feasible": pre_query_safety.applied,
+                                "reason": pre_query_safety.reason,
+                                "canonical_id": pre_query_safety.canonical_id,
+                            }
+                            if pre_query_safety is not None
+                            else {"checked": False, "reason": "not_enabled_or_not_required"}
+                        ),
                         "action": policy.action,
                         "would_request_hr": policy.request_hr,
                         "decision": decision,
@@ -547,7 +613,15 @@ class OnlineRecoveryEngine:
                                 "canonical_id": merge_result.canonical_id,
                             }
                             if merge_result is not None
-                            else {"applied": False, "reason": "ecia_abstain"}
+                            else {
+                                "applied": False,
+                                "reason": (
+                                    f"prequery_safety_reject:{pre_query_safety.reason}"
+                                    if pre_query_safety is not None
+                                    and not pre_query_safety.applied
+                                    else "ecia_abstain"
+                                ),
+                            }
                         ),
                     }
                 )

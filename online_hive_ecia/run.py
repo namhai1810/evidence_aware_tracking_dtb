@@ -55,6 +55,7 @@ def parse_args() -> argparse.Namespace:
             "hr_disabled",
             "base_guided_hr_disabled",
             "base_guided_online",
+            "base_guided_safety_online",
         ),
         required=True,
     )

@@ -8,6 +8,7 @@ import torch
 
 from hive_ecia.recovery_aware import RecoveryAwareECIA
 from online_hive_ecia.base_trigger import BaseGuidedCandidateProposer, BaseGuidedHRPolicy
+from online_hive_ecia.identity import CanonicalIdentityRegistry
 from online_hive_ecia.types import LostTrack, Observation, TrackToken
 
 
@@ -154,6 +155,58 @@ class CandidateProposerTest(unittest.TestCase):
         )
         self.assertIsNotNone(proposal)
         self.assertEqual(proposal.pair_kind, "active_to_active")
+
+
+class PreQuerySafetyTest(unittest.TestCase):
+    def test_valid_lost_to_new_precheck_does_not_mutate_registry(self) -> None:
+        registry = CanonicalIdentityRegistry()
+        old_token, _ = registry.token_for(raw_id=4, frame_id=1)
+        new_token, _ = registry.token_for(raw_id=9, frame_id=10)
+        registry.begin_frame({new_token})
+        new_canonical_before = registry.canonical(new_token)
+
+        feasibility = registry.precheck_successor(
+            old_token=old_token,
+            new_token=new_token,
+            new_observation_count=1,
+            max_new_observations=3,
+        )
+
+        self.assertTrue(feasibility.applied)
+        self.assertEqual(feasibility.reason, "merge_feasible")
+        self.assertEqual(registry.canonical(new_token), new_canonical_before)
+        committed = registry.merge_successor(
+            old_token=old_token,
+            new_token=new_token,
+            new_observation_count=1,
+            max_new_observations=3,
+        )
+        self.assertTrue(committed.applied)
+        self.assertEqual(registry.canonical(new_token), registry.canonical(old_token))
+
+    def test_active_identity_is_rejected_before_and_after_full_decision(self) -> None:
+        registry = CanonicalIdentityRegistry()
+        old_token, _ = registry.token_for(raw_id=4, frame_id=10)
+        new_token, _ = registry.token_for(raw_id=9, frame_id=10)
+        registry.begin_frame({old_token, new_token})
+
+        precheck = registry.precheck_successor(
+            old_token=old_token,
+            new_token=new_token,
+            new_observation_count=1,
+            max_new_observations=3,
+        )
+        final = registry.merge_successor(
+            old_token=old_token,
+            new_token=new_token,
+            new_observation_count=1,
+            max_new_observations=3,
+        )
+
+        self.assertFalse(precheck.applied)
+        self.assertEqual(precheck.reason, "old_identity_still_active")
+        self.assertFalse(final.applied)
+        self.assertEqual(final.reason, precheck.reason)
 
 
 if __name__ == "__main__":

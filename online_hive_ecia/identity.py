@@ -64,7 +64,7 @@ class CanonicalIdentityRegistry:
     def begin_frame(self, active_tokens: set[TrackToken]) -> None:
         self._active = set(active_tokens)
 
-    def merge_successor(
+    def precheck_successor(
         self,
         *,
         old_token: TrackToken,
@@ -72,12 +72,12 @@ class CanonicalIdentityRegistry:
         new_observation_count: int,
         max_new_observations: int,
     ) -> MergeResult:
-        """Make ``new_token`` continue ``old_token`` without mutating BoT-SORT.
+        """Check final merge guards without changing an identity alias.
 
-        Active ownership and output uniqueness are checked before the alias is
-        committed. The old raw token is retired as the predecessor; if it later
-        reappears while the successor is active, collision resolution gives it
-        a fresh virtual ID rather than emitting duplicate identities.
+        The online controller calls this before an expensive HIVE/HR query.
+        ``applied=True`` means the merge is currently feasible, not that any
+        state has been committed.  ``merge_successor`` repeats this check at
+        decision time so the final collision guard remains authoritative.
         """
 
         if old_token == new_token:
@@ -97,9 +97,39 @@ class CanonicalIdentityRegistry:
         )
         if owner is not None:
             return MergeResult(False, "canonical_id_active_conflict")
-        self._token_to_canonical[new_token] = old_canonical
+        return MergeResult(True, "merge_feasible", old_canonical)
+
+    def merge_successor(
+        self,
+        *,
+        old_token: TrackToken,
+        new_token: TrackToken,
+        new_observation_count: int,
+        max_new_observations: int,
+    ) -> MergeResult:
+        """Make ``new_token`` continue ``old_token`` without mutating BoT-SORT.
+
+        Active ownership and output uniqueness are checked before the alias is
+        committed. The old raw token is retired as the predecessor; if it later
+        reappears while the successor is active, collision resolution gives it
+        a fresh virtual ID rather than emitting duplicate identities.
+        """
+
+        feasibility = self.precheck_successor(
+            old_token=old_token,
+            new_token=new_token,
+            new_observation_count=new_observation_count,
+            max_new_observations=max_new_observations,
+        )
+        if not feasibility.applied:
+            return feasibility
+        self._token_to_canonical[new_token] = int(feasibility.canonical_id)
         self._retired.add(old_token)
-        return MergeResult(True, "canonical_identity_transferred", old_canonical)
+        return MergeResult(
+            True,
+            "canonical_identity_transferred",
+            int(feasibility.canonical_id),
+        )
 
     def resolve_frame(self, tokens: list[TrackToken]) -> tuple[list[int], list[dict]]:
         """Guarantee one output identity per current detection."""

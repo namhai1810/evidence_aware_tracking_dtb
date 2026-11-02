@@ -69,6 +69,26 @@ Base-guided modes additionally log Base probability, margin, entropy, policy
 action, pair type, cache hits/misses and actual/would-request HR cost in the
 same output contract.
 
+### Pre-query safety mode
+
+`base_guided_safety_online` preserves the complete Base-Guided Full policy but
+reuses the canonical identity registry guards before an expensive query:
+
+```text
+ECIA Base says request HR
+  -> non-mutating registry precheck
+       guaranteed reject (active-ID collision / track too old) -> abstain, log, no HIVE/HR
+       feasible                                             -> unchanged HIVE + one HR crop + ECIA Full
+  -> unchanged final registry safety check before every proposed merge
+```
+
+The precheck does not transfer an alias and does not inspect GT or future
+frames. In particular, a valid Lost-to-New pair remains feasible. The paired
+evaluator requires the original and optimized runs to have the same Base event
+pool and would-request schedule, then compares raw MOT, canonical MOT and all
+tracking metrics. If canonical MOT differs it records exact line-level and
+event-level reasons in `metrics.json` rather than hiding the mismatch.
+
 ## Output contract
 
 Each run writes:
@@ -240,3 +260,21 @@ ONLINE_ECIA_IMGSZ=640 \
 ONLINE_ECIA_RUN_ID=quadtrack_dtb_640x320_v1 \
 bash run_online_hive_ecia_quadtrack_dtb.sh
 ```
+
+## Pre-query safety evaluation
+
+This runs the unchanged `base_guided_online` baseline and
+`base_guided_safety_online` with identical settings on QuadTrack 512x120 and
+DTB 640x320. It produces a detailed report for each dataset plus one
+consolidated report. It does not train or calibrate any model.
+
+```bash
+cd /workspace/evidence_aware_tracking/code
+SAFETY_ECIA_DEVICE=0 \
+SAFETY_ECIA_RUN_ID=prequery_safety_v1 \
+bash run_safety_aware_evaluation.sh
+```
+
+Consolidated output:
+
+`outputs/safety_aware_online/prequery_safety_v1/REPORT.md`.
