@@ -11,6 +11,7 @@ import numpy as np
 from build_hive_history_ranking_v2 import appearance_descriptor
 from hive_hr_reid.run_experiment import clipped_crop
 
+from .base_trigger import BaseGuidedCandidateProposer, BaseGuidedHRPolicy
 from .identity import CanonicalIdentityRegistry
 from .models import OnlineModelBundle
 from .trigger import AmbiguityTrigger
@@ -27,7 +28,10 @@ class OnlineRecoveryEngine:
         mode: str,
         model_bundle: OnlineModelBundle | None,
     ) -> None:
-        if mode not in {"baseline", "online", "hr_disabled"}:
+        if mode not in {
+            "baseline", "online", "hr_disabled",
+            "base_guided_hr_disabled", "base_guided_online",
+        }:
             raise ValueError(f"Unsupported online mode: {mode}")
         if mode != "baseline" and model_bundle is None:
             raise ValueError("online modes require a frozen model bundle")
@@ -35,6 +39,8 @@ class OnlineRecoveryEngine:
         self.mode = mode
         self.model_bundle = model_bundle
         self.trigger = AmbiguityTrigger(config["trigger"])
+        self.base_proposer = BaseGuidedCandidateProposer(config["base_guided_trigger"])
+        self.base_policy = BaseGuidedHRPolicy(config["base_guided_trigger"]["policy"])
         self.registry = CanonicalIdentityRegistry(
             raw_reuse_gap=int(config["history"]["raw_reuse_gap"])
         )
@@ -136,6 +142,48 @@ class OnlineRecoveryEngine:
         return [
             (canonical, sorted(rows, key=lambda row: row.frame_id)[-sample_count:])
             for canonical, rows in ordered
+        ]
+
+    def _token_competitors(
+        self,
+        *,
+        frame_id: int,
+        old_token: TrackToken,
+        new_token: TrackToken,
+        current_observations: list[Observation],
+    ) -> list[tuple[str, list[Observation]]]:
+        """Stable raw-token groups unaffected by online canonical merges.
+
+        This makes Base-guided HR-on/off proposal and HR-request schedules
+        pairable even when the Full branch changes canonical identities.
+        """
+
+        history_config = self.config["history"]
+        earliest = frame_id - int(history_config["competitor_history_frames"])
+        current = {row.token: row for row in current_observations}
+        groups: list[tuple[TrackToken, list[Observation]]] = []
+        for token, history in self.history_by_token.items():
+            if token in {old_token, new_token}:
+                continue
+            rows = [row for row in history if row.frame_id >= earliest]
+            if token in current:
+                rows.append(current[token])
+            if rows:
+                groups.append((token, rows))
+        # Include established active tokens which do not yet have a retained
+        # history entry (possible immediately after a generation change).
+        known = {token for token, _ in groups}
+        for token, row in current.items():
+            if token not in {old_token, new_token} and token not in known:
+                groups.append((token, [row]))
+        groups.sort(
+            key=lambda item: (max(row.frame_id for row in item[1]), len(item[1]), item[0].key()),
+            reverse=True,
+        )
+        sample_count = int(history_config["competitor_samples"])
+        return [
+            (token.key(), sorted(rows, key=lambda row: row.frame_id)[-sample_count:])
+            for token, rows in groups[: int(history_config["max_competitors"])]
         ]
 
     def _update_lifecycle(
@@ -262,7 +310,9 @@ class OnlineRecoveryEngine:
         rows = np.asarray(valid_rows, dtype=float).reshape(-1, 6)
         tokens = [row.token for row in current_observations]
 
-        if self.mode != "baseline":
+        # Original rule-based implementation is intentionally unchanged and
+        # remains a selectable baseline.
+        if self.mode in {"online", "hr_disabled"}:
             event_limit = int(self.config["trigger"]["max_events_per_frame"])
             attempted = 0
             for observation in current_observations:
@@ -352,6 +402,158 @@ class OnlineRecoveryEngine:
                 if attempted >= event_limit:
                     break
 
+        if self.mode in {"base_guided_hr_disabled", "base_guided_online"}:
+            event_limit = int(self.config["base_guided_trigger"]["candidate"]["max_events_per_frame"])
+            attempted = 0
+            for observation in current_observations:
+                token = observation.token
+                new_age = self.observation_counts[token] + 1
+                proposal = self.base_proposer.propose_candidates(
+                    frame_id=frame_id,
+                    new_observation=observation,
+                    new_age=new_age,
+                    lost_tracks=list(self.lost.values()),
+                    active_observations=current_observations,
+                    observation_counts=self.observation_counts,
+                )
+                if proposal is None:
+                    continue
+                cooldown_key = (proposal.old.token, proposal.new_token)
+                last_attempt = self.cooldown.get(cooldown_key, -10**9)
+                cooldown_frames = int(self.config["base_guided_trigger"]["candidate"]["cooldown_frames"])
+                if frame_id - last_attempt < cooldown_frames:
+                    continue
+                self.cooldown[cooldown_key] = frame_id
+                attempted += 1
+                self.counters["base_proposed_events"] += 1
+                assert self.model_bundle is not None
+
+                old_history = list(self.history_by_token[proposal.old.token])
+                if proposal.pair_kind == "active_to_active" and (
+                    not old_history
+                    or old_history[-1].frame_id != proposal.old.last_observation.frame_id
+                ):
+                    old_history.append(proposal.old.last_observation)
+                prepared = self.model_bundle.prepare_base_event(
+                    proposal=proposal,
+                    target_observation=observation,
+                    old_history=old_history,
+                    competitor_histories=self._token_competitors(
+                        frame_id=frame_id,
+                        old_token=proposal.old.token,
+                        new_token=proposal.new_token,
+                        current_observations=current_observations,
+                    ),
+                )
+                if prepared is None:
+                    diagnostics.append(
+                        {
+                            "type": "base_guided_event",
+                            "frame": frame_id,
+                            "old_token": proposal.old.token.key(),
+                            "new_token": proposal.new_token.key(),
+                            "pair_kind": proposal.pair_kind,
+                            "trigger": self.base_proposer.diagnostics(proposal),
+                            "action": "abstain",
+                            "would_request_hr": False,
+                            "decision": {"merge": False, "reason": "missing_base_evidence"},
+                            "safety": {"applied": False, "reason": "missing_base_evidence"},
+                        }
+                    )
+                    if attempted >= event_limit:
+                        break
+                    continue
+
+                policy = self.base_policy.decide(prepared.diagnostics)
+                self.latency_ms["base_ms"] += float(prepared.diagnostics["latency_ms"])
+                if policy.request_hr:
+                    self.counters["triggers"] += 1
+                    self.counters["base_hr_requests"] += 1
+
+                if policy.request_hr and self.mode == "base_guided_online":
+                    decision = self.model_bundle.recover_prepared_with_hr(
+                        prepared=prepared,
+                        proposal=proposal,
+                        target_crop=observation.lr_crop,
+                        old_history=old_history,
+                        new_history=list(self.history_by_token[proposal.new_token]),
+                        global_history=list(self.global_history),
+                    )
+                else:
+                    # HR-disabled logs the exact same would-request decision;
+                    # gate=0 is represented by the already-computed Base logits.
+                    decision = self.model_bundle.decide_from_prepared_base(prepared)
+                    decision.update(
+                        {
+                            "base": prepared.diagnostics,
+                            "timing": {
+                                "base_ms": prepared.diagnostics["latency_ms"],
+                                "hive_ms": 0.0,
+                                "hr_ms": 0.0,
+                                "ecia_ms": 0.0,
+                            },
+                            "hr": {
+                                "requested": False,
+                                "crop_count": 0,
+                                "bytes_read": 0,
+                                "crop_pixels": 0,
+                            },
+                        }
+                    )
+                timing = decision.get("timing", {})
+                for key in ("hive_ms", "hr_ms", "ecia_ms"):
+                    self.latency_ms[key] += float(timing.get(key, 0.0))
+                hr = decision.get("hr", {})
+                self.hr_cost["requests"] += int(bool(hr.get("requested")))
+                self.hr_cost["crops"] += int(hr.get("crop_count", 0))
+                self.hr_cost["bytes_read"] += int(hr.get("bytes_read", 0))
+                self.hr_cost["crop_pixels"] += int(hr.get("crop_pixels", 0))
+
+                merge_result = None
+                if decision.get("merge"):
+                    merge_result = self.registry.merge_successor(
+                        old_token=proposal.old.token,
+                        new_token=proposal.new_token,
+                        new_observation_count=new_age,
+                        max_new_observations=int(
+                            self.config["history"]["max_new_observations_for_merge"]
+                        ),
+                    )
+                    if merge_result.applied:
+                        self.counters["merges_applied"] += 1
+                        self.recovered_tokens.add(proposal.new_token)
+                    else:
+                        self.counters["merges_rejected_by_safety"] += 1
+                else:
+                    self.counters["abstains"] += 1
+                diagnostics.append(
+                    {
+                        "type": "base_guided_event",
+                        "frame": frame_id,
+                        "old_token": proposal.old.token.key(),
+                        "new_token": proposal.new_token.key(),
+                        "old_canonical_id": proposal.old.canonical_id,
+                        "pair_kind": proposal.pair_kind,
+                        "trigger": self.base_proposer.diagnostics(proposal),
+                        "base": prepared.diagnostics,
+                        "policy": BaseGuidedHRPolicy.diagnostics(policy),
+                        "action": policy.action,
+                        "would_request_hr": policy.request_hr,
+                        "decision": decision,
+                        "safety": (
+                            {
+                                "applied": merge_result.applied,
+                                "reason": merge_result.reason,
+                                "canonical_id": merge_result.canonical_id,
+                            }
+                            if merge_result is not None
+                            else {"applied": False, "reason": "ecia_abstain"}
+                        ),
+                    }
+                )
+                if attempted >= event_limit:
+                    break
+
         canonical_ids, collisions = self.registry.resolve_frame(tokens)
         for collision in collisions:
             self.counters["identity_collisions_resolved"] += 1
@@ -388,5 +590,10 @@ class OnlineRecoveryEngine:
                 / triggers,
             },
             "hr_cost": dict(self.hr_cost),
+            "model_cache": (
+                dict(self.model_bundle.cache_counters)
+                if self.model_bundle is not None
+                else {}
+            ),
         }
 

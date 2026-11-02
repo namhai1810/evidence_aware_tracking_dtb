@@ -34,6 +34,32 @@ class RecoveryAwareOutput:
     hr_available: Tensor
 
 
+@dataclass
+class RecoveryAwareBaseState:
+    """Reusable frozen-Base result for one LR association event.
+
+    Keeping the projected tensors and Base logits in this object lets an
+    online caller decide whether HR is worth requesting and, when it is,
+    continue through HR Gain + Gate without running the Base branch twice.
+    """
+
+    old_projected: Tensor
+    target_projected: Tensor
+    hypotheses: Tensor
+    hypothesis_mask: Tensor
+    competitor_mask: Tensor
+    target_hypothesis_cosine: Tensor
+    base_scores: Tensor
+    base_probabilities: Tensor
+    old_probability: Tensor
+    top_probability: Tensor
+    top2_margin: Tensor
+    normalized_entropy: Tensor
+    old_margin: Tensor
+    abstain_logit: Tensor
+    base_decision_logits: Tensor
+
+
 def trainable_parameter_count(module: nn.Module) -> int:
     return sum(parameter.numel() for parameter in module.parameters() if parameter.requires_grad)
 
@@ -152,29 +178,20 @@ class RecoveryAwareECIA(nn.Module):
     def _project(self, embedding: Tensor) -> Tensor:
         return self.shared_projection(F.normalize(embedding, p=2, dim=-1, eps=1e-8))
 
-    def forward(
+    def forward_base(
         self,
         old: Tensor,
         target: Tensor,
-        hr: Tensor,
         competitors: Tensor,
         competitor_mask: Tensor,
-        hr_available: Tensor | None = None,
-        ablation: str = "full",
-        gate_override: float | None = None,
-    ) -> RecoveryAwareOutput:
-        if ablation != "full":
-            raise ValueError("RecoveryAwareECIA supports only the Full path; use gate_override=0 for HR ablation")
+    ) -> RecoveryAwareBaseState:
+        """Run the frozen LR-only branch exactly once and retain its state."""
+
         batch_size, competitor_count, _ = competitors.shape
         competitor_mask = competitor_mask.bool()
-        if hr_available is None:
-            hr_available = torch.ones(batch_size, 1, dtype=torch.bool, device=old.device)
-        else:
-            hr_available = hr_available.reshape(batch_size, 1).bool()
 
         old_p = self._project(old)
         target_p = self._project(target)
-        hr_p = self._project(hr)
         competitor_p = self._project(competitors.reshape(-1, self.embedding_dim)).reshape(
             batch_size, competitor_count, self.projection_dim
         )
@@ -223,6 +240,56 @@ class RecoveryAwareECIA(nn.Module):
         abstain_logit = self.abstain_head(base_abstain_features)
         masked_base = base_scores.masked_fill(~hypothesis_mask, torch.finfo(base_scores.dtype).min)
         base_decision_logits = torch.cat((masked_base, abstain_logit), dim=-1)
+
+        return RecoveryAwareBaseState(
+            old_projected=old_p,
+            target_projected=target_p,
+            hypotheses=hypotheses,
+            hypothesis_mask=hypothesis_mask,
+            competitor_mask=competitor_mask,
+            target_hypothesis_cosine=target_hypothesis_cosine,
+            base_scores=base_scores,
+            base_probabilities=base_probabilities,
+            old_probability=old_probability,
+            top_probability=top_probability,
+            top2_margin=top2_margin,
+            normalized_entropy=normalized_entropy,
+            old_margin=old_margin,
+            abstain_logit=abstain_logit,
+            base_decision_logits=base_decision_logits,
+        )
+
+    def forward_from_base(
+        self,
+        base: RecoveryAwareBaseState,
+        hr: Tensor,
+        hr_available: Tensor | None = None,
+        gate_override: float | None = None,
+    ) -> RecoveryAwareOutput:
+        """Continue a cached Base event through HR Gain and Gate fusion."""
+
+        batch_size = base.base_scores.shape[0]
+        if hr_available is None:
+            hr_available = torch.ones(batch_size, 1, dtype=torch.bool, device=hr.device)
+        else:
+            hr_available = hr_available.reshape(batch_size, 1).bool()
+
+        old_p = base.old_projected
+        target_p = base.target_projected
+        hypotheses = base.hypotheses
+        hypothesis_mask = base.hypothesis_mask
+        competitor_mask = base.competitor_mask
+        target_hypothesis_cosine = base.target_hypothesis_cosine
+        base_scores = base.base_scores
+        base_probabilities = base.base_probabilities
+        old_probability = base.old_probability
+        top_probability = base.top_probability
+        top2_margin = base.top2_margin
+        normalized_entropy = base.normalized_entropy
+        old_margin = base.old_margin
+        abstain_logit = base.abstain_logit
+        base_decision_logits = base.base_decision_logits
+        hr_p = self._project(hr)
 
         hr_expanded = hr_p.unsqueeze(1).expand_as(hypotheses)
         hr_target_difference = torch.abs(hr_p - target_p).unsqueeze(1).expand_as(hypotheses)
@@ -320,6 +387,32 @@ class RecoveryAwareECIA(nn.Module):
             gate_features=gate_features,
             hypothesis_mask=hypothesis_mask,
             hr_available=hr_available[:, 0],
+        )
+
+    def forward(
+        self,
+        old: Tensor,
+        target: Tensor,
+        hr: Tensor,
+        competitors: Tensor,
+        competitor_mask: Tensor,
+        hr_available: Tensor | None = None,
+        ablation: str = "full",
+        gate_override: float | None = None,
+    ) -> RecoveryAwareOutput:
+        if ablation != "full":
+            raise ValueError("RecoveryAwareECIA supports only the Full path; use gate_override=0 for HR ablation")
+        base = self.forward_base(
+            old=old,
+            target=target,
+            competitors=competitors,
+            competitor_mask=competitor_mask,
+        )
+        return self.forward_from_base(
+            base,
+            hr=hr,
+            hr_available=hr_available,
+            gate_override=gate_override,
         )
 
 

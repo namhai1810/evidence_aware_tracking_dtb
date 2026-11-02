@@ -20,6 +20,42 @@ trigger:
   cooldown_frames: 30
   max_events_per_frame: 2
 
+# Base-guided thresholds must be selected on validation data only.  These
+# initial values mirror the frozen checkpoint's existing validation-selected
+# recovery thresholds; run no test/DTB calibration against them.
+base_guided_trigger:
+  calibration:
+    split: quadtrack_validation_only
+    status: pending_explicit_validation_sweep
+    source: outputs/hive_ecia_recovery_aware/20261030_osnet_ain_recovery_v1/validation_thresholds.json
+  embedding_cache_size: 4096
+  base_event_cache_size: 32
+  candidate:
+    max_lost_age: 30
+    max_new_age: 3
+    min_motion_iou: 0.02
+    min_reid_similarity: 0.30
+    strong_reid_similarity: 0.75
+    min_association_score: 0.0
+    max_ambiguity_margin: 0.15
+    motion_weight: 0.40
+    reid_weight: 0.60
+    require_native_reid_or_motion: true
+    include_active_conflicts: true
+    active_min_age: 4
+    active_min_motion_iou: 0.05
+    active_min_reid_similarity: 0.65
+    cooldown_frames: 30
+    max_events_per_frame: 2
+  policy:
+    direct_merge_min_old_probability: 0.80
+    direct_merge_min_old_margin: 0.40
+    request_min_old_probability: 0.20
+    request_max_old_probability: 0.80
+    request_max_competitor_margin: 0.40
+    request_min_normalized_entropy: 0.35
+    require_old_identity_top1: true
+
 history:
   max_history_frames: 150
   max_observations_per_identity: 32

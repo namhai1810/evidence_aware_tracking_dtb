@@ -76,4 +76,5 @@ class TriggerProposal:
     association_margin: float
     ambiguous: bool
     reasons: list[str] = field(default_factory=list)
+    pair_kind: str = "lost_to_new"
 

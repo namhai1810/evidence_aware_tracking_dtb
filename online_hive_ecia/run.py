@@ -47,7 +47,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset-root", type=Path, default=DEFAULT_DATASET)
     parser.add_argument("--dataset-label", default="dataset")
     parser.add_argument("--sequences", nargs="+", required=True)
-    parser.add_argument("--mode", choices=("baseline", "online", "hr_disabled"), required=True)
+    parser.add_argument(
+        "--mode",
+        choices=(
+            "baseline",
+            "online",
+            "hr_disabled",
+            "base_guided_hr_disabled",
+            "base_guided_online",
+        ),
+        required=True,
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--weights", type=Path, default=CODE_ROOT / "yolo11l.pt")
     parser.add_argument("--tracker-config", type=Path, default=CODE_ROOT / "botsort_reid.yaml")
@@ -111,6 +121,16 @@ def validate(args: argparse.Namespace, config: dict) -> dict[str, Path]:
         raise ValueError("imgsz/fps must be positive and warmup-frames non-negative")
     if not 0.0 < args.conf <= 1.0 or not 0.0 < args.iou <= 1.0:
         raise ValueError("conf and iou must be in (0,1]")
+    calibration = config.get("base_guided_trigger", {}).get("calibration", {})
+    calibration_split = str(calibration.get("split", "")).lower()
+    if args.mode.startswith("base_guided") and (
+        "validation" not in calibration_split
+        or "test" in calibration_split
+        or "dtb" in calibration_split
+    ):
+        raise ValueError(
+            "Base-guided thresholds must declare a validation-only calibration split"
+        )
     expected_size = tuple(map(int, config["input"]["physical_lr_size"]))
     if tuple(args.pre_resize) != expected_size and not args.allow_resolution_mismatch:
         raise ValueError(
@@ -267,7 +287,7 @@ def process_sequence(
             write_mot_rows(canonical_file, frame_id, canonical_mot)
             for row in diagnostics:
                 diagnostic_file.write(json.dumps(row, default=json_default) + "\n")
-                if row.get("type") == "recovery_event":
+                if row.get("type") in {"recovery_event", "base_guided_event"}:
                     diagnostic_events += 1
             if diagnostics and diagnostic_events % flush_every == 0:
                 diagnostic_file.flush()
@@ -381,6 +401,18 @@ def main() -> int:
         "iou": args.iou,
         "device": device,
         "frozen_models": bundle.checkpoint_audit if bundle is not None else None,
+        "trigger_configuration": {
+            "implementation": (
+                "ecia_base_guided"
+                if args.mode.startswith("base_guided")
+                else ("rule_based" if args.mode != "baseline" else "none")
+            ),
+            "base_guided": (
+                config.get("base_guided_trigger")
+                if args.mode.startswith("base_guided")
+                else None
+            ),
+        },
         "sequence_timing": results,
     }
     (args.output_dir / "run_manifest.json").write_text(

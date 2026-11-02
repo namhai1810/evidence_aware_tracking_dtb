@@ -93,5 +93,11 @@ events.out.tfevents.*
 *.jpg
 *.svg
 *.pdf
+!outputs/report_assets/online_base_guided_*_02112026.png
+!outputs/report_assets/online_base_guided_*_02112026.pdf
 test_*
 !hive_ecia/tests/test_recovery_aware.py
+!online_hive_ecia/tests/test_base_guided.py
+
+*.png
+*.pdf

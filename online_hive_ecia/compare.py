@@ -68,13 +68,21 @@ def timing_summary(run: Path, sequences: list[str]) -> dict:
     }
 
 
-def trigger_pool(run: Path, sequences: list[str]) -> list[tuple[str, int, str, str]]:
+def trigger_pool(
+    run: Path,
+    sequences: list[str],
+    *,
+    event_type: str = "recovery_event",
+    request_only: bool = False,
+) -> list[tuple[str, int, str, str]]:
     events = []
     for sequence in sequences:
         path = run / "diagnostics" / f"{sequence}.jsonl"
         for line in path.read_text(encoding="utf-8").splitlines():
             row = json.loads(line)
-            if row.get("type") == "recovery_event":
+            if row.get("type") == event_type and (
+                not request_only or bool(row.get("would_request_hr"))
+            ):
                 events.append(
                     (
                         sequence,
@@ -105,12 +113,16 @@ def trigger_accuracy(
     gt_cache: dict,
     raw_predictions: dict,
     iou: float,
+    event_type: str = "recovery_event",
+    request_only: bool = False,
 ) -> dict:
     """Score the frozen online trigger after inference; never feed GT back."""
 
     from rank_highres_retrieval_frames import build_match_index, find_switch_events
 
-    logged_rows = trigger_pool(run, sequences)
+    logged_rows = trigger_pool(
+        run, sequences, event_type=event_type, request_only=request_only
+    )
     logged_by_sequence = {sequence: set() for sequence in sequences}
     for sequence, frame, old_token, new_token in logged_rows:
         logged_by_sequence[sequence].add(
