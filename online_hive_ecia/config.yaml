@@ -1,0 +1,52 @@
+experiment:
+  name: online_hive_ecia_dtb
+  protocol: causal_full_video_no_gt_no_future
+
+input:
+  physical_lr_size: [512, 120]
+  fps: 30.0
+
+trigger:
+  max_lost_age: 30
+  max_new_age: 3
+  min_motion_iou: 0.05
+  min_reid_similarity: 0.45
+  strong_reid_similarity: 0.75
+  min_association_score: 0.45
+  max_ambiguity_margin: 0.15
+  motion_weight: 0.40
+  reid_weight: 0.60
+  require_native_reid_or_motion: true
+  cooldown_frames: 30
+  max_events_per_frame: 2
+
+history:
+  max_history_frames: 150
+  max_observations_per_identity: 32
+  max_global_observations: 2048
+  old_samples: 5
+  competitor_history_frames: 30
+  competitor_samples: 3
+  max_competitors: 12
+  raw_reuse_gap: 60
+  max_new_observations_for_merge: 3
+
+hive:
+  checkpoint: hr_finding/runs/hive_history_v2_seed42/checkpoints/best.pt
+  max_candidates: 20
+  appearance_candidates: 10
+  recent_candidates: 5
+  diverse_candidates: 5
+  min_spacing_frames: 3
+  crop_size: [128, 64]
+
+ecia:
+  checkpoint: outputs/hive_ecia_recovery_aware/20261030_osnet_ain_recovery_v1/training/best.pt
+  thresholds: outputs/hive_ecia_recovery_aware/20261030_osnet_ain_recovery_v1/validation_thresholds.json
+  min_old_probability: 0.80
+  min_old_margin: 0.40
+  reid_encoder: osnet_ain_x1_0
+  reid_checkpoint: models/reid_benchmark/osnet_ain_x1_0_d_m_c.pth
+
+logging:
+  flush_every_events: 1

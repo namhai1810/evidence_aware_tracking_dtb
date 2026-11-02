@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+import sys
 from typing import Protocol
 
 import cv2
@@ -16,6 +17,43 @@ from hive_hr_reid import run_experiment as baseline
 
 VALID_ENCODERS = ("onnx", "osnet_x1_0", "osnet_ain_x1_0")
 CODE_ROOT = Path(__file__).resolve().parents[1]
+
+
+def import_torchreid_build_model():
+    """Import Torchreid without replacing the active conda Torch/CUDA stack.
+
+    The DTB workspace already contains the exact Torchreid 0.2.5 source used
+    by the OSNet experiments under ``code/.venv``. Some runtime containers do
+    not install that pure-Python package into ``hainn_stitching``. Append (do
+    not prepend) only its site-packages parent as a fallback, so packages from
+    the active conda environment retain priority.
+    """
+
+    try:
+        from torchreid.reid.models import build_model
+
+        return build_model
+    except ModuleNotFoundError as first_error:
+        version = f"python{sys.version_info.major}.{sys.version_info.minor}"
+        local_site = CODE_ROOT / ".venv" / "lib" / version / "site-packages"
+        local_package = local_site / "torchreid"
+        if not local_package.is_dir():
+            raise ModuleNotFoundError(
+                "Torchreid is required for OSNet-AIN. It is neither installed "
+                f"in the active environment nor available at {local_package}."
+            ) from first_error
+        site_value = str(local_site)
+        if site_value not in sys.path:
+            sys.path.append(site_value)
+        try:
+            from torchreid.reid.models import build_model
+
+            return build_model
+        except ModuleNotFoundError as fallback_error:
+            raise ModuleNotFoundError(
+                "Found the project-local Torchreid source but one of its "
+                f"dependencies is missing: {fallback_error.name}."
+            ) from fallback_error
 
 
 class ReIDEncoder(Protocol):
@@ -104,10 +142,7 @@ class TorchreidEncoder:
     """Official Torchreid OSNet/OSNet-AIN inference adapter."""
 
     def __init__(self, architecture: str, checkpoint: Path, device: torch.device) -> None:
-        try:
-            from torchreid.reid.models import build_model
-        except ImportError:
-            from torchreid.models import build_model
+        build_model = import_torchreid_build_model()
 
         model = build_model(
             architecture,
