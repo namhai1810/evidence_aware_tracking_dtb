@@ -1,0 +1,107 @@
+experiment:
+  name: online_aware_recovery_ecia_balanced_v2
+  seed: 42
+
+model:
+  embedding_dim: 512
+  projection_dim: 64
+  relation_hidden_dim: 32
+  parameter_limit: 50000
+  max_competitors: 12
+
+recovery_aware:
+  event_hidden_dim: 32
+  hr_distribution_temperature: 0.20
+
+data:
+  # configure.py rewrites these paths inside each isolated run directory.
+  train_cache: outputs/online_ecia_finetune/PLACEHOLDER/cache/train.npz
+  validation_cache: outputs/online_ecia_finetune/PLACEHOLDER/cache/validation.npz
+  calibration_cache: outputs/online_ecia_finetune/PLACEHOLDER/cache/calibration.npz
+  # Sequence 0021 is held out from fitting specifically for robust threshold
+  # calibration. This preserves video-disjoint model selection/calibration.
+  train_sequences: ['0015', '0018', '0020', '0022', '0023', '0024', '0026', '0027', '0029']
+  validation_sequences: ['0019', '0028']
+  calibration_sequences: ['0021', '0030']
+  test_sequences: ['0016', '0017', '0025', '0031']
+  required_sample_kinds: [positive, hard_negative, no_merge, safety_infeasible]
+
+sampling:
+  strategy: controlled_identity
+  epoch_size: 1200
+  # Exactly one balancing mechanism: these quotas are applied by the sampler;
+  # classification/ranking losses receive unit example weights.
+  fractions:
+    merge_old: 0.40
+    competitor: 0.20
+    abstain: 0.30
+    safety_infeasible: 0.10
+  # Competitor quota is already hard-negative supervision. Only this fraction
+  # of the Old quota may additionally use misleading-HR hard negatives.
+  old_hard_negative_fraction: 0.15
+
+fine_tuning:
+  initial_checkpoint: outputs/hive_ecia_recovery_aware/20261030_osnet_ain_recovery_v1/training/best.pt
+  # HIVE and OSNet-AIN remain outside the optimizer and frozen. Only ECIA is
+  # adapted from the existing Recovery-Aware checkpoint.
+  trainable_prefixes:
+    - shared_projection
+    - base_association
+    - hr_evidence_gain
+    - evidence_gate
+    - abstain_head
+
+training:
+  device: cuda:0
+  epochs: 50
+  patience: 10
+  batch_size: 128
+  num_workers: 0
+  learning_rate: 0.0002
+  weight_decay: 0.0001
+
+loss:
+  base_weight: 0.5
+  fused_weight: 1.0
+  ranking_weight: 0.25
+  # Retain false-merge protection, but remove the former 2x global plus 2x
+  # per-negative suppression that drove Old probability toward zero.
+  wrong_merge_weight: 0.75
+  false_merge_multiplier: 1.25
+  hr_preservation_weight: 0.75
+  ranking_margin: 0.20
+
+validation_selection:
+  eligibility:
+    min_merge_recall: 0.20
+    min_macro_f1: 0.25
+    max_wrong_merge_rate: 0.10
+    max_abstain_prediction_fraction: 0.90
+  score_weights:
+    macro_f1: 1.0
+    merge_recall: 0.75
+    merge_precision: 0.25
+    wrong_merge_rate: 1.0
+
+calibration:
+  # A coarse grid plus per-video robust scoring limits threshold overfitting.
+  direct_probability_grid: [0.50, 0.70, 0.90]
+  direct_margin_grid: [0.00, 0.20]
+  request_min_probability_grid: [0.10, 0.20]
+  # Include a conservative 0.95 operating point. The previous grid ended at
+  # 0.80, where every recall-positive point had at least two false merges.
+  final_probability_grid: [0.40, 0.60, 0.80, 0.95]
+  final_margin_grid: [0.00, 0.20, 0.40]
+  request_max_old_probability: 0.85
+  request_max_competitor_margin: 0.40
+  request_min_normalized_entropy: 0.35
+  require_old_identity_top1: true
+  false_merge_penalty: 1.5
+  missed_merge_penalty: 0.50
+  hr_request_penalty: 0.02
+  per_video_std_penalty: 0.25
+  min_events: 25
+  min_positive_merges: 5
+  min_merge_recall: 0.10
+  max_wrong_merge_rate: 0.10
+  max_wrong_merges: 1

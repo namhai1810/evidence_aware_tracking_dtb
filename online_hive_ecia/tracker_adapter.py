@@ -1,4 +1,4 @@
-"""Version-tolerant read-only adapter for Ultralytics BoT-SORT state."""
+"""Version-tolerant read-only adapter for Ultralytics tracker state."""
 
 from __future__ import annotations
 
@@ -70,8 +70,8 @@ def _signals(tracks: Iterable, state: str) -> dict[int, TrackerSignal]:
     return result
 
 
-def inspect_botsort(model) -> tuple[dict[int, TrackerSignal], dict[int, TrackerSignal]]:
-    """Read active/lost states without changing tracker association internals."""
+def inspect_ultralytics_tracker(model) -> tuple[dict[int, TrackerSignal], dict[int, TrackerSignal]]:
+    """Read ByteTrack/BoT-SORT state without changing association internals."""
 
     predictor = getattr(model, "predictor", None)
     trackers = getattr(predictor, "trackers", ())
@@ -81,4 +81,10 @@ def inspect_botsort(model) -> tuple[dict[int, TrackerSignal], dict[int, TrackerS
     active = _signals(getattr(tracker, "tracked_stracks", ()), "tracked")
     lost = _signals(getattr(tracker, "lost_stracks", ()), "lost")
     return active, lost
+
+
+def inspect_botsort(model) -> tuple[dict[int, TrackerSignal], dict[int, TrackerSignal]]:
+    """Backward-compatible alias retained for the original BoT-SORT pipeline."""
+
+    return inspect_ultralytics_tracker(model)
 

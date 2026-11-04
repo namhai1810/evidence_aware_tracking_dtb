@@ -10,7 +10,7 @@ import numpy as np
 
 @dataclass(frozen=True, order=True)
 class TrackToken:
-    """A raw BoT-SORT ID plus a generation protecting against ID reuse."""
+    """A raw tracker ID plus a generation protecting against ID reuse."""
 
     raw_id: int
     generation: int = 0
@@ -21,7 +21,7 @@ class TrackToken:
 
 @dataclass
 class TrackerSignal:
-    """Online state exposed by an Ultralytics BoT-SORT track object."""
+    """Online state exposed by an Ultralytics ByteTrack/BoT-SORT object."""
 
     raw_id: int
     bbox_lr: np.ndarray

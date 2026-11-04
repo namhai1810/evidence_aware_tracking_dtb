@@ -1,0 +1,72 @@
+experiment:
+  name: online_aware_recovery_ecia
+  seed: 42
+
+model:
+  embedding_dim: 512
+  projection_dim: 64
+  relation_hidden_dim: 32
+  parameter_limit: 50000
+  max_competitors: 12
+
+recovery_aware:
+  event_hidden_dim: 32
+  hr_distribution_temperature: 0.20
+
+data:
+  # These paths are rewritten into an isolated run config by configure.py.
+  train_cache: outputs/online_ecia_finetune/PLACEHOLDER/cache/train.npz
+  validation_cache: outputs/online_ecia_finetune/PLACEHOLDER/cache/validation.npz
+  calibration_cache: outputs/online_ecia_finetune/PLACEHOLDER/cache/calibration.npz
+  train_sequences: ['0015', '0018', '0020', '0021', '0022', '0023', '0024', '0026', '0027', '0029']
+  validation_sequences: ['0019', '0028']
+  calibration_sequences: ['0030']
+  test_sequences: ['0016', '0017', '0025', '0031']
+  required_sample_kinds: [positive, hard_negative, no_merge]
+  sample_weights:
+    positive: 1.0
+    negative: 1.25
+    hard_negative: 2.5
+    no_merge: 2.0
+
+fine_tuning:
+  initial_checkpoint: outputs/hive_ecia_recovery_aware/20261030_osnet_ain_recovery_v1/training/best.pt
+  # All ECIA heads may adapt to the causal online distribution. HIVE and
+  # OSNet-AIN never enter the optimizer and remain frozen in the collector.
+  trainable_prefixes:
+    - shared_projection
+    - base_association
+    - hr_evidence_gain
+    - evidence_gate
+    - abstain_head
+
+training:
+  device: cuda:0
+  epochs: 50
+  patience: 10
+  batch_size: 128
+  num_workers: 0
+  learning_rate: 0.0002
+  weight_decay: 0.0001
+
+loss:
+  base_weight: 0.5
+  fused_weight: 1.0
+  ranking_weight: 0.25
+  wrong_merge_weight: 2.0
+  hr_preservation_weight: 0.75
+  ranking_margin: 0.20
+
+calibration:
+  direct_probability_grid: [0.50, 0.60, 0.70, 0.80, 0.90]
+  direct_margin_grid: [0.00, 0.10, 0.20, 0.30, 0.40]
+  request_min_probability_grid: [0.10, 0.20, 0.30]
+  final_probability_grid: [0.40, 0.50, 0.60, 0.70, 0.80, 0.90]
+  final_margin_grid: [0.00, 0.10, 0.20, 0.30, 0.40]
+  request_max_old_probability: 0.85
+  request_max_competitor_margin: 0.40
+  request_min_normalized_entropy: 0.35
+  require_old_identity_top1: true
+  false_merge_penalty: 2.0
+  missed_merge_penalty: 0.25
+  hr_request_penalty: 0.02

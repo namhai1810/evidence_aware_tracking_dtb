@@ -56,6 +56,7 @@ def parse_args() -> argparse.Namespace:
             "base_guided_hr_disabled",
             "base_guided_online",
             "base_guided_safety_online",
+            "base_guided_gating_off_safety_online",
         ),
         required=True,
     )
@@ -393,6 +394,9 @@ def main() -> int:
         "sequences": args.sequences,
         "detector": str(args.weights.resolve()),
         "tracker_config": str(args.tracker_config.resolve()),
+        "tracker_type": yaml.safe_load(
+            args.tracker_config.resolve().read_text(encoding="utf-8")
+        ).get("tracker_type", "unknown"),
         "physical_lr_size": list(args.pre_resize),
         "hive_reference_lr_size": list(map(int, config["input"]["physical_lr_size"])),
         "resolution_zero_shot": tuple(args.pre_resize)

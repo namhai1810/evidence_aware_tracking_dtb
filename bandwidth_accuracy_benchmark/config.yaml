@@ -1,0 +1,32 @@
+protocol:
+  jpeg_quality: 90
+  fps: 30.0
+  detector_confidence: 0.20
+  detector_nms_iou: 0.70
+  evaluation_iou: 0.50
+  hr_imgsz: 2048
+  periodic_intervals: [5, 10, 30]
+  periodic_first_frame_is_hr: true
+
+quadtrack:
+  label: quadtrack_512x120
+  sequences: ["0016", "0017", "0025", "0031"]
+  lr_size: [512, 120]
+  lr_imgsz: 512
+  expected_hive:
+    id_switches: 78
+    idf1: 0.4663
+    hota: 0.3725
+    assa: 0.4628
+
+dtb:
+  label: dtb_640x320
+  sequences: [normal_walking, crossing, partial_occ, seam, full_occ]
+  lr_size: [640, 320]
+  lr_imgsz: 640
+  expected_hive:
+    id_switches: 89
+    idf1: 0.3722
+    hota: 0.3525
+    assa: 0.2408
+

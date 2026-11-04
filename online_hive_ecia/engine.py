@@ -32,6 +32,7 @@ class OnlineRecoveryEngine:
             "baseline", "online", "hr_disabled",
             "base_guided_hr_disabled", "base_guided_online",
             "base_guided_safety_online",
+            "base_guided_gating_off_safety_online",
         }:
             raise ValueError(f"Unsupported online mode: {mode}")
         if mode != "baseline" and model_bundle is None:
@@ -407,6 +408,7 @@ class OnlineRecoveryEngine:
             "base_guided_hr_disabled",
             "base_guided_online",
             "base_guided_safety_online",
+            "base_guided_gating_off_safety_online",
         }:
             event_limit = int(self.config["base_guided_trigger"]["candidate"]["max_events_per_frame"])
             attempted = 0
@@ -471,12 +473,24 @@ class OnlineRecoveryEngine:
 
                 policy = self.base_policy.decide(prepared.diagnostics)
                 self.latency_ms["base_ms"] += float(prepared.diagnostics["latency_ms"])
+                gating_off = self.mode == "base_guided_gating_off_safety_online"
+                # G0 changes only the pre-query gate: every candidate with
+                # valid Base evidence becomes an HR-query candidate. The
+                # original Base decision is still logged for paired auditing.
+                effective_request_hr = True if gating_off else policy.request_hr
                 if policy.request_hr:
+                    self.counters["base_policy_hr_requests"] += 1
+                if gating_off and not policy.request_hr:
+                    self.counters["gating_off_added_requests"] += 1
+                if effective_request_hr:
                     self.counters["triggers"] += 1
                     self.counters["base_hr_requests"] += 1
 
                 pre_query_safety = None
-                if policy.request_hr and self.mode == "base_guided_safety_online":
+                if effective_request_hr and self.mode in {
+                    "base_guided_safety_online",
+                    "base_guided_gating_off_safety_online",
+                }:
                     pre_query_safety = self.registry.precheck_successor(
                         old_token=proposal.old.token,
                         new_token=proposal.new_token,
@@ -487,8 +501,11 @@ class OnlineRecoveryEngine:
                     )
 
                 if (
-                    policy.request_hr
-                    and self.mode == "base_guided_safety_online"
+                    effective_request_hr
+                    and self.mode in {
+                        "base_guided_safety_online",
+                        "base_guided_gating_off_safety_online",
+                    }
                     and pre_query_safety is not None
                     and not pre_query_safety.applied
                 ):
@@ -521,11 +538,15 @@ class OnlineRecoveryEngine:
                             },
                         }
                     )
-                elif policy.request_hr and self.mode in {
+                elif effective_request_hr and self.mode in {
                     "base_guided_online",
                     "base_guided_safety_online",
+                    "base_guided_gating_off_safety_online",
                 }:
-                    if self.mode == "base_guided_safety_online":
+                    if self.mode in {
+                        "base_guided_safety_online",
+                        "base_guided_gating_off_safety_online",
+                    }:
                         self.counters["prequery_feasible_requests"] += 1
                     decision = self.model_bundle.recover_prepared_with_hr(
                         prepared=prepared,
@@ -593,6 +614,11 @@ class OnlineRecoveryEngine:
                         "trigger": self.base_proposer.diagnostics(proposal),
                         "base": prepared.diagnostics,
                         "policy": BaseGuidedHRPolicy.diagnostics(policy),
+                        "gating": {
+                            "enabled": not gating_off,
+                            "base_policy_would_request_hr": policy.request_hr,
+                            "effective_request_hr": effective_request_hr,
+                        },
                         "pre_query_safety": (
                             {
                                 "checked": True,
@@ -603,8 +629,8 @@ class OnlineRecoveryEngine:
                             if pre_query_safety is not None
                             else {"checked": False, "reason": "not_enabled_or_not_required"}
                         ),
-                        "action": policy.action,
-                        "would_request_hr": policy.request_hr,
+                        "action": "request_hr_gating_off" if gating_off else policy.action,
+                        "would_request_hr": effective_request_hr,
                         "decision": decision,
                         "safety": (
                             {
